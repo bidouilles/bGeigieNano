@@ -6,9 +6,9 @@ This is a lighter version of the bGeigie Mini using a LND 712 geiger tube.
 * [Arduino Fio][3]
 * [OpenLog][1]
 * Adafruit [Ultimate GPS][7]
-* [LND712][4] geiger tube
-* 3.7V 1000mAh Lithium battery
+* [LND712][4] geiger tube with Medcom iRover HV board
 * [Nokia 5110][2] LCD screen
+* 3.7V 1000mAh Lithium battery
 
 # Assembly
 
@@ -93,6 +93,7 @@ To make sure all of the NMEA sentences can be received correctly, we will need t
  * [InterruptHandler and bGeigieMini code][5] - Copyright (c) 2011, Robin Scheibler aka FakuFaku
  * [TinyGPS][6] - Copyright (C) 2008-2012 Mikal Hart
  * bGeigieNano - Copyright (c) 2012, Lionel Bergeret
+ * [Makefile][8] - Copyright (c) 2012, Tim Marston
 
 
   [1]: https://github.com/sparkfun/OpenLog "OpenLog"
@@ -102,3 +103,4 @@ To make sure all of the NMEA sentences can be received correctly, we will need t
   [5]: https://github.com/fakufaku/SafecastBGeigie-firmware "SafecastBGeigie-firmware"
   [6]: http://arduiniana.org/libraries/tinygps/ "TinyGPS"
   [7]: https://www.adafruit.com/products/746 "Ultimate GPS"
+  [8]: http://ed.am/dev/make/arduino-mk "Arduino Makefile"
