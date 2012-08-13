@@ -1,22 +1,18 @@
-# Welcome to bGeigie Nano project
+# Welcome to xGeigie Nano project
 
-This is a lighter version of the bGeigie Mini which is meant to fit in a Pelican Micro Case 1040.
+This is a lighter version of the bGeigie Mini using a LND 712 geiger tube.
 
 # Requirements
-* Arduino Fio or Arduino Pro Mini
+* [Arduino Fio][3]
 * [OpenLog][1]
-* [GPSBee][2] or Adafruit [Ultimate GPS][7]
-* [Inspector Alert][3] (with audio jack connector)
-* 3.7V 850mAh Lithium battery (*~15 hours logging*)
-* [Pelican Micro Case 1040][4]
-
-# Extensions (optional)
-* Solar panel
-* Serial LCD Display
+* Adafruit [Ultimate GPS][7]
+* [LND712][4] geiger tube
+* 3.7V 1000mAh Lithium battery
+* [Nokia 5110][2] LCD screen
 
 # Assembly
 
-![bGeigieNano](https://github.com/bidouilles/bGeigieNano/raw/master/assembly/bGeigieNano_bb.jpg)
+![xGeigieNano](https://github.com/bidouilles/bGeigieNano/raw/xGeigieNano/assembly/xGeigieNano_kit_600.jpg)
 
 ## Pins assignment
 
@@ -25,35 +21,16 @@ This is a lighter version of the bGeigie Mini which is meant to fit in a Pelican
 | VCC | VCC pin of the GPS and OpenLog |
 | GND | GND pin of the GPS and OpenLog |
 | D2 | pulse pin from the Inspector audio jack |
-| D5 | TX pin of the GPS |
-| D6 | RX pin of the GPS |
-| D7 | TX pin of the OpenLog |
-| D8 | RX pin of the OpenLog |
-| D9 | GRN pin of the OpenLog |
-
-# Power consumption
-
-* **Fio**: 0.045mA sleep, 6mA at run time
-* **OpenLog**: 2mA idle, 6mA at maximum recording rate
-* **GPSBee**: 102mA acquisition, 44mA tracking
-* **Adafruit Ultimate GPS**: 25mA acquisition, 20mA tracking
-
-## Estimation with GPSBee
-The total current used at run time can be estimated around 56mA (= 6+6+44) per second which will result in a consumption of 0.0155mAh (= 56mA/3600). So
-the total log duration if using a battery of 850mAh will be (850/.0155)/3600 = 15.17 = **15h10m**
-
-## Estimation with Adafruit Ultimate GPS (MTK3339)
-The total current used at run time can be estimated around 32mA (= 6+6+20) per second which will result in a consumption of 0.0088mAh (= 32mA/3600). So
-the total log duration if using a battery of 850mAh will be (850/.0088)/3600 = 26.56 = **26h33m**
-
-## Summary table
-
-| Battery capacity (mAh) | Estimated log duration GPSBee (days hh:mm) | Estimated log duration Ultimate GPS (days hh:mm) |
-| :-----------: | :-----------: | :-----------: |
-| 850 |	0d 15:10 | 1d 02:33 |
-| 1000 | 0d 17:51 | 1d 07:15 |
-| 2000 | 1d 11:42 | 2d 14:30 |
-| 6000 | 4d 11:08 | 7d 19:30 |
+| D3 | Nokia 5110 RST pin |
+| D4 | Nokia 5110 CS pin |
+| D5 | Nokia 5110 DC pin |
+| D6 | Nokia 5110 DIN pin |
+| D7 | Nokia 5110 CLK pin |
+| D8 | TX pin of the GPS |
+| D9 | RX pin of the GPS |
+| D10 | TX pin of the OpenLog |
+| D11 | RX pin of the OpenLog |
+| D12 | GRN pin of the OpenLog |
 
 # Build process
 ## Using the Makefile
@@ -119,9 +96,9 @@ To make sure all of the NMEA sentences can be received correctly, we will need t
 
 
   [1]: https://github.com/sparkfun/OpenLog "OpenLog"
-  [2]: http://www.seeedstudio.com/wiki/GPS_Bee_kit_%28with_Mini_Embedded_Antenna%29 "GPSBee"
-  [3]: http://medcom.com/products/inspector-alert "Inspector Alert"
-  [4]: http://pelican.com/cases_detail.php?Case=1040 "Pelican Micro Case 1040"
+  [2]: https://www.adafruit.com/products/338 "Nokia 5110"
+  [3]: https://www.sparkfun.com/products/10116 "Arduino Fio"
+  [4]: http://www.lndinc.com/products/711/ "LND712"
   [5]: https://github.com/fakufaku/SafecastBGeigie-firmware "SafecastBGeigie-firmware"
   [6]: http://arduiniana.org/libraries/tinygps/ "TinyGPS"
   [7]: https://www.adafruit.com/products/746 "Ultimate GPS"
