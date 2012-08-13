@@ -37,7 +37,9 @@
 #include <EEPROM.h>
 #include "TinyGPS.h"
 
+// ----------------------------------------------------------------------------
 // Definition flags -----------------------------------------------------------
+// ----------------------------------------------------------------------------
 //#define USE_SSD1306
 //#define USE_SSD1306_DISTANCE
 //#define USE_SSD1306_CARDINAL
@@ -48,17 +50,28 @@
 //#define USE_MEDIATEK // MTK3339 initialization
 //#define USE_SKYTRAQ // SkyTraq Venus 6 initialization
 #define USE_EEPROM_ID // use device id stored in EEPROM
+//#define USE_DS1307_RTC // use RTC clock instead of GPS (stationary)
+#define USE_NOKIA5110
 
-#ifndef USE_SSD1306 // high memory usage
-#define DEBUG // enable debug log output
-//#define DEBUG_DIAGNOSTIC
-#endif
+#define CPM_FACTOR 120.0 // LND 712
+//#define CPM_FACTOR 334.0 // LND 7317
 
-#ifdef USE_HARDWARE_COUNTER
-#define USE_SLEEPMODE 
-#endif
-
+// ----------------------------------------------------------------------------
 // PINs definition ------------------------------------------------------------
+// ----------------------------------------------------------------------------
+#ifdef USE_NOKIA5110
+#warning NOKIA screen used !
+#define NOKIA_CLK_PIN 7
+#define NOKIA_DIN_PIN 6
+#define NOKIA_DC_PIN 5
+#define NOKIA_CS_PIN 4
+#define NOKIA_RST_PIN 3
+#define MINIPRO_GPS_RX_PIN 8
+#define MINIPRO_GPS_TX_PIN 9
+#define OPENLOG_RX_PIN 10
+#define OPENLOG_TX_PIN 11
+#define OPENLOG_RST_PIN 12
+#else
 #ifdef USE_HARDWARE_COUNTER
 // Pin assignment for version 1.0.1
 #warning Hardware counter is used !
@@ -78,10 +91,34 @@
 #define OPENLOG_TX_PIN 8
 #define OPENLOG_RST_PIN 9
 #endif
+#endif
+
 #define GPS_LED_PIN 13
 #define VOLTAGE_PIN A7
 
+// ----------------------------------------------------------------------------
+// Dependencies ---------------------------------------------------------------
+// ----------------------------------------------------------------------------
+#ifndef USE_SSD1306 // high memory usage
+#define DEBUG // enable debug log output
+#endif
+
+#ifdef USE_HARDWARE_COUNTER
+#define USE_SLEEPMODE 
+#endif
+
+// ----------------------------------------------------------------------------
+// RTC clock settings ---------------------------------------------------------
+// ----------------------------------------------------------------------------
+#ifdef USE_DS1307_RTC
+#include <Wire.h>
+#include "RTClib.h"
+RTC_DS1307 RTC;
+#endif
+
+// ----------------------------------------------------------------------------
 // OLED settings --------------------------------------------------------------
+// ----------------------------------------------------------------------------
 #ifdef USE_SSD1306
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -101,7 +138,18 @@ unsigned long int gps_distance = 0;
 
 #endif
 
+// ----------------------------------------------------------------------------
+// Nokia settings -------------------------------------------------------------
+// ----------------------------------------------------------------------------
+#ifdef USE_NOKIA5110
+#include <Adafruit_GFX.h>
+#include <Adafruit_PCD8544.h>
+Adafruit_PCD8544 display = Adafruit_PCD8544(NOKIA_CLK_PIN, NOKIA_DIN_PIN, NOKIA_DC_PIN, NOKIA_CS_PIN, NOKIA_RST_PIN);
+#endif
+
+// ----------------------------------------------------------------------------
 // Geiger settings ------------------------------------------------------------
+// ----------------------------------------------------------------------------
 #define TIME_INTERVAL 5000
 #define LINE_SZ 100
 #define BUFFER_SZ 12
@@ -123,6 +171,8 @@ char logfile_ext[] = ".log";
 unsigned long shift_reg[NX] = {0};
 unsigned long reg_index = 0;
 unsigned long total_count = 0;
+unsigned long total_time = 0;
+unsigned long max_count = 0;
 int str_count = 0;
 char geiger_status = VOID;
 
@@ -133,7 +183,9 @@ static char strbuffer[STRBUFFER_SZ];
 // geiger id
 char dev_id[BMRDD_ID_LEN+1] = {'2', '0', '0', 0};  // device id (default 200)
 
+// ----------------------------------------------------------------------------
 // Pulse counter --------------------------------------------------------------
+// ----------------------------------------------------------------------------
 #ifdef USE_HARDWARE_COUNTER
 // Hardware counter
 #include "HardwareCounter.h"
@@ -155,7 +207,9 @@ HardwareCounter hwc(COUNTER_TIMER1, TIME_INTERVAL);
 #define IS_READY (interruptCounterAvailable())
 #endif
 
+// ----------------------------------------------------------------------------
 // OpenLog settings -----------------------------------------------------------
+// ----------------------------------------------------------------------------
 #ifdef USE_OPENLOG
 #define OPENLOG_RETRY 200
 SoftwareSerial OpenLog(OPENLOG_RX_PIN, OPENLOG_TX_PIN); //Connect TXO of OpenLog to pin 8, RXI to pin 7
@@ -163,15 +217,19 @@ static const int resetOpenLog = OPENLOG_RST_PIN; //This pin resets OpenLog. Conn
 #endif
 bool openlog_ready = false;
 
-// GpsBee settings ------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// Gps settings ---------------------------------------------------------------
+// ----------------------------------------------------------------------------
+#ifndef USE_DS1307_RTC
 TinyGPS gps(true);
 #define GPS_INTERVAL 1000
-char gps_status = VOID;
-static const int ledPin = GPS_LED_PIN;
-
 #ifdef USE_SOFTGPS
 SoftwareSerial gpsSerial(MINIPRO_GPS_RX_PIN, MINIPRO_GPS_TX_PIN);
 #endif
+#endif
+
+char gps_status = VOID;
+static const int ledPin = GPS_LED_PIN;
 
 // Gps data buffers
 static char lat[BUFFER_SZ];
@@ -204,7 +262,9 @@ static void sendstring(TinyGPS &gps, const PROGMEM char *str)
 }
 #endif
 
+// ----------------------------------------------------------------------------
 // Debug definitions ----------------------------------------------------------
+// ----------------------------------------------------------------------------
 #ifdef DEBUG
   #define DEBUG_PRINT(x) Serial.print(x)
   #define DEBUG_PRINTLN(x) Serial.println(x)
@@ -213,12 +273,13 @@ static void sendstring(TinyGPS &gps, const PROGMEM char *str)
   #define DEBUG_PRINTLN(x)
 #endif
 
-// Function definitions ---------------------------------------------------------
-// Atmel Tips and Tricks: 3.6 Tip #6 – Access types: Static
+// ----------------------------------------------------------------------------
+// Function definitions -------------------------------------------------------
+// ----------------------------------------------------------------------------
+// Atmel Tips and Tricks: 3.6 Tip #6 - Access types: Static
 static unsigned long cpm_gen();
-static bool gps_gen_filename(TinyGPS &gps, char *buf);
-static bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned long cpm, unsigned long cpb);
-static char checksum(char *s, int N);
+static bool gps_gen_filename(char *buf);
+static bool gps_gen_timestamp(char *buf, unsigned long counts, unsigned long cpm, unsigned long cpb);
 #ifdef USE_OPENLOG
 static void setupOpenLog();
 static void createFile(char *fileName);
@@ -232,7 +293,9 @@ static float read_voltage(int pin);
 static int availableMemory();
 static unsigned long elapsedTime(unsigned long startTime);
 
+// ----------------------------------------------------------------------------
 // Sleep mode -----------------------------------------------------------------
+// ----------------------------------------------------------------------------
 #ifdef USE_SLEEPMODE
 #include <avr/sleep.h>
 #include <avr/power.h>
@@ -313,7 +376,7 @@ void enterSleep(void)
 void setup()
 {
   // Set the EEPPROM device id at first run
-  //setEEPROMDevId("204");
+  //setEEPROMDevId("205");
   
   pinMode(ledPin, OUTPUT);
   Serial.begin(9600);
@@ -343,6 +406,14 @@ void setup()
   interruptCounterReset();
 #endif
 
+#ifdef USE_DS1307_RTC
+  RTC.begin();
+  if (! RTC.isrunning()) {
+    DEBUG_PRINTLN("RTC is NOT running!");
+    // following line sets the RTC to the date & time this sketch was compiled
+    RTC.adjust(DateTime(__DATE__, __TIME__));
+  }
+#else
 #ifdef USE_SOFTGPS
   DEBUG_PRINTLN("Initializing GPS.");
   gpsSerial.begin(9600);
@@ -353,6 +424,7 @@ void setup()
   // initialize and program the GPS module
   gps_program_settings();
 #endif
+#endif
 
 #ifdef USE_EEPROM_ID
   getEEPROMDevId();
@@ -361,10 +433,8 @@ void setup()
   DEBUG_PRINT("Devide id = ");
   DEBUG_PRINTLN(dev_id);
 
-#ifdef DEBUG_DIAGNOSTIC
   // setup analog reference to read battery and boost voltage
   analogReference(INTERNAL);
-#endif
 
 #ifdef USE_SLEEPMODE
   enableSleepTimer();
@@ -372,6 +442,12 @@ void setup()
 
 #ifdef USE_SSD1306
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.display(); // show splashscreen
+#endif
+
+#ifdef USE_NOKIA5110
+  display.begin();
+  display.setContrast(40);
   display.display(); // show splashscreen
 #endif
 
@@ -393,11 +469,14 @@ void loop()
     disableSleepTimer();
 #endif
 
+#ifndef USE_DS1307_RTC
 #ifdef USE_SOFTGPS
   // Put GPS serial in listen mode
   gpsSerial.listen();
 #endif
+#endif
   
+#ifndef USE_DS1307_RTC
   // For one second we parse GPS sentences
   for (unsigned long start = millis(); (elapsedTime(start) < GPS_INTERVAL) and !IS_READY;)
   {
@@ -423,6 +502,7 @@ void loop()
     }
 #endif
   }
+#endif
 
 #ifdef USE_SLEEPMODE
   // Will wakeup in 4 seconds from now
@@ -465,6 +545,10 @@ void loop()
 
       // update the total counter
       total_count += cpb;
+      total_time += 5;
+      
+      // update max cpm
+      if (cpm > max_count) max_count = cpm;
       
       // set status of Geiger
       if (str_count < NX)
@@ -481,11 +565,11 @@ void loop()
       // we printed the timestamp. otherwise, the GPS is still 
       // updating so wait until its finished and generate timestamp
       memset(line, 0, LINE_SZ);
-      gps_gen_timestamp(gps, line, shift_reg[reg_index], cpm, cpb);
+      gps_gen_timestamp(line, shift_reg[reg_index], cpm, cpb);
 
-      if ((!logfile_ready) && (gps_status == AVAILABLE))
+      if ((!logfile_ready)) // && (gps_status == AVAILABLE))
       {
-         if (gps_gen_filename(gps, logfile_name)) {
+         if (gps_gen_filename(logfile_name)) {
            logfile_ready = true;
 
 #ifdef USE_OPENLOG
@@ -502,22 +586,16 @@ void loop()
       // Printout line
       DEBUG_PRINTLN(line);
 
-#ifdef DEBUG_DIAGNOSTIC
+      // Printout voltage diagnostic line
       int v0 = (int)(read_voltage(VOLTAGE_PIN));
       DEBUG_PRINT("$DIAG,");
       DEBUG_PRINTLN(v0);
-#endif
       
 #ifdef USE_OPENLOG
       if (logfile_ready) {
         // Put OpenLog serial in listen mode
         OpenLog.listen();
         OpenLog.println(line);
-
-#ifdef DEBUG_DIAGNOSTIC
-        OpenLog.print("$DIAG,");
-        OpenLog.println(v0);
-#endif
       }
 #endif
   }
@@ -679,15 +757,21 @@ unsigned long cpm_gen()
 }
 
 /* generate log filename */
-bool gps_gen_filename(TinyGPS &gps, char *buf) {
+bool gps_gen_filename(char *buf) {
   int year = 2012;
   byte month = 0, day = 0, hour = 0, minute = 0, second = 0, hundredths = 0;
   unsigned long age;
 
+#ifdef USE_DS1307_RTC
+  DateTime now = RTC.now();
+  month = now.month();
+  day = now.day();
+#else
   gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, &hundredths, &age);
   if (TinyGPS::GPS_INVALID_AGE == age) {
     return false;
   }
+#endif
   
   // Create the filename for that drive
   strcpy(buf, dev_id);
@@ -724,7 +808,7 @@ float get_wgs84_coordinate(unsigned long val)
 #endif
 
 /* generate log result line */
-bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned long cpm, unsigned long cpb)
+bool gps_gen_timestamp(char *buf, unsigned long counts, unsigned long cpm, unsigned long cpb)
 {
   int year = 2012;
   byte month = 0, day = 0, hour = 0, minute = 0, second = 0, hundredths = 0;
@@ -740,7 +824,18 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
   memset(lat, 0, BUFFER_SZ);
   memset(lon, 0, BUFFER_SZ);
   memset(strbuffer, 0, STRBUFFER_SZ);
-  
+ 
+#ifdef USE_DS1307_RTC
+  DateTime now = RTC.now();
+  year = now.year();
+  month = now.month();
+  day = now.day();
+  hour = now.hour();
+  minute = now.minute();
+  dtostrf(9999.9999, 0, 4, lat);
+  dtostrf(9999.9999, 0, 4, lon);
+  dtostrf(0.0, 0, 2, strbuffer);
+#else 
   // get GPS date
   gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, &hundredths, &age);
   if (TinyGPS::GPS_INVALID_AGE == age) {
@@ -765,6 +860,7 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
   get_coordinate_string(x == TinyGPS::GPS_INVALID_ANGLE ? 0 : x, lat);
   get_coordinate_string(y == TinyGPS::GPS_INVALID_ANGLE ? 0 : y, lon);
   dtostrf(faltitude == TinyGPS::GPS_INVALID_F_ALTITUDE ? 0.0 : faltitude, 0, 2, strbuffer);
+#endif
   
   // prepare the log entry
   memset(buf, 0, LINE_SZ);
@@ -871,13 +967,13 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
    display.println(geiger_status);
  
    // Display uSv/h
-   dtostrf((float)(cpm/334.0), 0, 3, strbuffer);
+   dtostrf((float)(cpm/CPM_FACTOR), 0, 3, strbuffer);
    display.setTextColor(WHITE);
    display.setTextSize(1);
    display.setCursor(2, offset+16); // textsize*8 
    display.print(strbuffer);
    display.println(" uSv/h");
-
+   
 #ifdef USE_SSD1306_DISTANCE
    // Display distance
    dtostrf((float)(gps_distance/1000.0), 0, 1, strbuffer);
@@ -904,6 +1000,69 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
        display.println("m");
    }
       
+   display.display();
+#endif
+
+#ifdef USE_NOKIA5110
+   display.clearDisplay();
+
+   int offset = 0;
+
+   // Display CPM
+   display.setCursor(0, offset);
+   display.setTextSize(2);
+   display.setTextColor(BLACK);
+   if (geiger_status == 'V') {
+     display.print("CPM ---");
+   } else if (cpm > 1000) {
+     dtostrf((float)(cpm/1000), 0, 1, strbuffer);
+     display.print("CPM");
+     display.print(strbuffer);
+     display.println("K");
+   } else {
+     display.print("CPM ");
+     display.println(cpm);
+   }
+
+   // Display uSv/h
+   dtostrf((float)(cpm/CPM_FACTOR), 0, 2, strbuffer);
+   display.setTextColor(BLACK);
+   display.setTextSize(1);
+   display.setCursor(0, offset+16); // textsize*8
+   display.print("Dr=");
+   display.print(strbuffer);
+   display.println(" uS/h");
+
+   // Total dose and max count
+
+   dtostrf((float)(max_count/CPM_FACTOR), 0, 2, strbuffer);
+   display.setTextColor(BLACK);
+   display.setTextSize(1);
+   display.setCursor(0, offset+24); // textsize*8
+   display.print("Mx=");
+   display.print(strbuffer);
+   display.println(" uS/h");
+
+   //dtostrf((float)(total_count*total_time/(3600.0*CPM_FACTOR)), 0, 2, strbuffer);
+   dtostrf((float)( ((total_count/(total_time/60.0))/CPM_FACTOR) * (total_time/3600.0) ), 0, 2, strbuffer);
+   display.setTextColor(BLACK);
+   display.setTextSize(1);
+   display.setCursor(0, offset+32); // textsize*8
+   display.print("Ds=");
+   display.print(strbuffer);
+   display.print(" uS ");
+   dtostrf((float)(read_voltage(VOLTAGE_PIN)/1000), 0, 1, strbuffer);
+   display.println(strbuffer);
+
+   // Display date
+   sprintf_P(strbuffer, PSTR("%02d/%02d %02d:%02d:%02d"),  \
+              day, month, \
+              hour, minute, second);
+   display.setCursor(0, offset+41); // textsize*8
+   display.setTextSize(1);
+   display.setTextColor(BLACK);
+   display.println(strbuffer);
+
    display.display();
 #endif
 
@@ -942,6 +1101,7 @@ void gps_program_settings()
 #endif
 }
 
+#ifndef USE_DS1307_RTC
 void gps_send_message(const uint8_t *msg, uint16_t len)
 {
   uint8_t chk = 0x0;
@@ -964,6 +1124,7 @@ void gps_send_message(const uint8_t *msg, uint16_t len)
   gpsSerial.write(0x0A);
   gpsSerial.write('\n');
 }
+#endif
 
 #ifdef USE_EEPROM_ID
 /* retrieve the device id from EEPROM */
@@ -1010,12 +1171,10 @@ void setEEPROMDevId(char * id)
 }
 #endif
 
-#ifdef DEBUG_DIAGNOSTIC
 float read_voltage(int pin)
 {
-  return 1.1*analogRead(pin)*(3300/1024);
+  return 0.9*analogRead(pin)*(3300/1024)*4;
 }
-#endif
 
 int availableMemory() 
 {
