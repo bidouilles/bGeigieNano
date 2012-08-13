@@ -94,7 +94,14 @@
 #endif
 
 #define GPS_LED_PIN 13
+
+// Voltage divider
+// GND -- R2 --A7 -- R1 -- VCC
+// https://en.wikipedia.org/wiki/Voltage_divider
 #define VOLTAGE_PIN A7
+#define VOLTAGE_R1 9000
+#define VOLTAGE_R2 1000
+static float voltage_divider = (float)VOLTAGE_R2 / (VOLTAGE_R1 + VOLTAGE_R2);
 
 // ----------------------------------------------------------------------------
 // Dependencies ---------------------------------------------------------------
@@ -289,7 +296,7 @@ static void gps_program_settings();
 static void setEEPROMDevId(char * id);
 static void getEEPROMDevId();
 #endif
-static float read_voltage(int pin);
+static float get_voltage(int pin);
 static int availableMemory();
 static unsigned long elapsedTime(unsigned long startTime);
 
@@ -587,9 +594,9 @@ void loop()
       DEBUG_PRINTLN(line);
 
       // Printout voltage diagnostic line
-      int v0 = (int)(read_voltage(VOLTAGE_PIN));
+      dtostrf((float)(get_voltage(VOLTAGE_PIN)), 0, 1, strbuffer);
       DEBUG_PRINT("$DIAG,");
-      DEBUG_PRINTLN(v0);
+      DEBUG_PRINTLN(strbuffer);
       
 #ifdef USE_OPENLOG
       if (logfile_ready) {
@@ -1051,7 +1058,7 @@ bool gps_gen_timestamp(char *buf, unsigned long counts, unsigned long cpm, unsig
    display.print("Ds=");
    display.print(strbuffer);
    display.print(" uS ");
-   dtostrf((float)(read_voltage(VOLTAGE_PIN)/1000), 0, 1, strbuffer);
+   dtostrf((float)(get_voltage(VOLTAGE_PIN)), 0, 1, strbuffer);
    display.println(strbuffer);
 
    // Display date
@@ -1171,9 +1178,14 @@ void setEEPROMDevId(char * id)
 }
 #endif
 
-float read_voltage(int pin)
+float get_voltage(int pin)
 {
-  return 0.9*analogRead(pin)*(3300/1024)*4;
+  float voltage = 0.0;
+  // convert to actual voltage (0 - 3.3 Vdc)
+  voltage = (analogRead(pin) / 1024) * 3.3;
+  // apply voltage divider
+  voltage = voltage / voltage_divider;
+  return voltage;
 }
 
 int availableMemory() 
