@@ -68,7 +68,7 @@ unsigned long int gps_distance = 0;
 #define LINE_SZ 100
 #define BUFFER_SZ 12
 #define STRBUFFER_SZ 32
-#define NX 12
+#define NX (60000 / TIME_INTERVAL) // 1-minute sliding window in TIME_INTERVAL-sized bins
 #define AVAILABLE 'A'  // indicates geiger data are ready (available)
 #define VOID      'V'  // indicates geiger data not ready (void)
 
@@ -471,14 +471,14 @@ void loop()
 
       // update the total counter
       total_count += cpb;
-      uptime += 5;
+      uptime += TIME_INTERVAL / 1000;
 
       // update max cpm
       if (cpm > max_count) max_count = cpm;
 
 #if ENABLE_EEPROM_DOSE
       dose.total_count += cpb;
-      dose.total_time += 5;
+      dose.total_time += TIME_INTERVAL / 1000;
       if (dose.total_time % BMRDD_EEPROM_DOSE_WRITETIME == 0) {
          EEPROM_writeAnything(BMRDD_EEPROM_DOSE, dose);
       }
@@ -734,7 +734,7 @@ void get_coordinate_string(bool is_latitude, unsigned long val, char *buf)
   unsigned long left = 0;
   unsigned long right = 0;
 
-  left = val/100000.0;
+  left = val / 100000;
   right = (val - left*100000)/10;
   if (is_latitude) {
     sprintf_P(buf, PSTR("%04ld.%04ld"), left, right);
