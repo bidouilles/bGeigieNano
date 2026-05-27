@@ -35,7 +35,7 @@
 int _interrupt_pin;
 unsigned long _start_time;
 unsigned long _delay;
-unsigned long _count;
+COUNTER_TYPE _count;
 
 // private methods here
 void interrupt_routine();
@@ -71,8 +71,11 @@ int interruptCounterAvailable()
 }
 
 // return current number of counts
-unsigned long interruptCounterCount()
+COUNTER_TYPE interruptCounterCount()
 {
+  // reset the sampling window without resetting the count itself, so the
+  // caller can take a fresh sample by diffing against its previous read.
+  _start_time = millis();
   return _count;
 }
 
