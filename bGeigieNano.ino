@@ -896,15 +896,21 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long cpm, unsigned long
     } else {
       display.setTextColor(WHITE);
     }
-    if (cpm > 1000) {
-      dtostrf((float)(cpm/1000), 0, 1, strbuffer);
+    // kCPM (>=1000) uses float division — the previous (cpm/1000) was an
+    // integer divide that dropped the fractional digit (1750 -> "1.0k").
+    if (cpm >= 10000) {
+      dtostrf((float)cpm / 1000.0, 0, 1, strbuffer);
       display.print(strbuffer);
-      display.print("k");
+      sprintf_P(strbuffer, PSTR("kCPM"));
+    } else if (cpm >= 1000) {
+      dtostrf((float)cpm / 1000.0, 0, 2, strbuffer);
+      display.print(strbuffer);
+      sprintf_P(strbuffer, PSTR("kCPM"));
     } else {
       dtostrf((float)cpm, 0, 0, strbuffer);
       display.print(strbuffer);
+      sprintf_P(strbuffer, PSTR(" CPM"));
     }
-    sprintf_P(strbuffer, PSTR(" CPM"));
     display.print(strbuffer);
 
     // Display SD, GPS and Geiger states
@@ -932,11 +938,24 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long cpm, unsigned long
     display.setTextColor(WHITE);
     display.setCursor(0, offset+16); // textsize*8
     if (config.mode == GEIGIE_MODE_USVH) {
-      dtostrf((float)(cpm/config.cpm_factor), 0, 3, strbuffer);
-      display.print(strbuffer);
-      sprintf_P(strbuffer, PSTR(" uSv/h"));
+      // Auto-switch to mSv/h above 1000 uSv/h (1 mSv/h ≈ 334k CPM at LND default).
+      // Reduce to 2 decimals above 10 uSv/h to keep the line from overflowing.
+      float usvh = (float)cpm / config.cpm_factor;
+      if (usvh >= 1000.0) {
+        dtostrf(usvh / 1000.0, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" mSv/h"));
+      } else if (usvh >= 10.0) {
+        dtostrf(usvh, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" uSv/h"));
+      } else {
+        dtostrf(usvh, 0, 3, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" uSv/h"));
+      }
       display.println(strbuffer);
-    } 
+    }
     else if (config.mode == GEIGIE_MODE_BQM2) {
       dtostrf((float)(cpm*config.bqm_factor), 0, 3, strbuffer);
       display.print(strbuffer);
@@ -976,25 +995,43 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long cpm, unsigned long
     }
     display.setTextSize(2);
     display.setCursor(0, offset); // textsize*8
-    dtostrf((float)(cpm/config.cpm_factor), 0, 2, strbuffer);
-    display.print(strbuffer);
-    sprintf_P(strbuffer, PSTR(" uS/h"));
-    display.print(strbuffer);
+    {
+      // Same mSv/h auto-switch as the bGeigie mode display.
+      float ush = (float)cpm / config.cpm_factor;
+      if (ush >= 1000.0) {
+        dtostrf(ush / 1000.0, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" mS/h"));
+      } else if (ush >= 10.0) {
+        dtostrf(ush, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" uS/h"));
+      } else {
+        dtostrf(ush, 0, 3, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" uS/h"));
+      }
+      display.print(strbuffer);
+    }
 
     display.setCursor(0, offset+16);
     display.setTextSize(1);
     display.setTextColor(WHITE);
     if (toggle) {
-      // Display CPM
-      if (cpm > 1000) {
-        dtostrf((float)(cpm/1000), 0, 1, strbuffer);
+      // Display CPM. Same int-divide fix + >=10000 branch as bGeigie mode.
+      if (cpm >= 10000) {
+        dtostrf((float)cpm / 1000.0, 0, 1, strbuffer);
         display.print(strbuffer);
-        display.print("k");
+        sprintf_P(strbuffer, PSTR("kCPM "));
+      } else if (cpm >= 1000) {
+        dtostrf((float)cpm / 1000.0, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR("kCPM "));
       } else {
-        display.print(cpm);
-        display.print(" ");
+        dtostrf((float)cpm, 0, 0, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" CPM "));
       }
-      sprintf_P(strbuffer, PSTR("CPM "));
       display.print(strbuffer);
 
       // Display bq/m2
