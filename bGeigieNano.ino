@@ -110,6 +110,10 @@ HardwareCounter hwc(HARDWARE_COUNTER_TIMER1, TIME_INTERVAL);
 #define IS_READY (interruptCounterAvailable())
 #endif
 
+// Last counter value, for delta-based sampling that does not race with
+// the hardware reset.
+COUNTER_TYPE prev_count = 0;
+
 // OpenLog settings -----------------------------------------------------------
 #if ENABLE_OPENLOG
 #define OPENLOG_RETRY 200
@@ -290,12 +294,14 @@ void setup()
 #if ENABLE_HARDWARE_COUNTER
   // Start the Pulse Counter!
   hwc.start();
+  prev_count = hwc.count();
 #else
   // Create pulse counter
   interruptCounterSetup(INTERRUPT_COUNTER_PIN, TIME_INTERVAL);
 
   // And now Start the Pulse Counter!
   interruptCounterReset();
+  prev_count = interruptCounterCount();
 #endif
 
 #if ENABLE_SOFTGPS
@@ -446,19 +452,17 @@ void loop()
       wdt_reset();
 #endif
 
+      // read the current free-running counter, then derive this bin's count
+      // by diffing against the previous read. The hardware is never reset
+      // between samples, so pulses arriving during the read can't be lost.
+      // The unsigned subtraction is correct across one wrap of COUNTER_TYPE.
 #if ENABLE_HARDWARE_COUNTER
-      // obtain the count in the last bin
-      cpb = hwc.count();
-
-      // reset the pulse counter
-      hwc.start();
+      COUNTER_TYPE this_count = hwc.count();
 #else
-      // obtain the count in the last bin
-      cpb = interruptCounterCount();
-
-      // reset the pulse counter
-      interruptCounterReset();
+      COUNTER_TYPE this_count = interruptCounterCount();
 #endif
+      cpb = (COUNTER_TYPE)(this_count - prev_count);
+      prev_count = this_count;
 
       // insert count in sliding window and compute CPM
       shift_reg[reg_index] = cpb;     // put the count in the correct bin
