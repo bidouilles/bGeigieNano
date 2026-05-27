@@ -172,11 +172,10 @@ static void sendstring(TinyGPS &gps, const PROGMEM char *str)
 // Atmel Tips and Tricks: 3.6 Tip #6 – Access types: Static
 static unsigned long cpm_gen();
 static bool gps_gen_filename(TinyGPS &gps, char *buf);
-static bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned long cpm, unsigned long cpb);
+static bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long cpm, unsigned long cpb);
 static char checksum(char *s, int N);
 #if ENABLE_OPENLOG
 static void setupOpenLog();
-static bool loadConfig(char *fileName);
 static void createFile(char *fileName);
 #endif
 static void gps_program_settings();
@@ -527,7 +526,7 @@ void loop()
 #ifdef ENABLE_LND_DEADTIME
            sprintf_P(strbuffer, PSTR("nano\n# deadtime=on\n"));
 #else
-           sprintf_P(strbuffer, PSTR("nano\n));
+           sprintf_P(strbuffer, PSTR("nano\n"));
 #endif
            OpenLog.print(strbuffer);
            DEBUG_PRINT(strbuffer);
@@ -552,7 +551,7 @@ void loop()
       // we printed the timestamp. otherwise, the GPS is still
       // updating so wait until its finished and generate timestamp
       memset(line, 0, LINE_SZ);
-      gps_gen_timestamp(gps, line, shift_reg[reg_index], cpm, cpb);
+      gps_gen_timestamp(gps, line, cpm, cpb);
 
       // Printout line
       Serial.println(line);
@@ -645,7 +644,6 @@ void setupOpenLog() {
 /* create a new file */
 void createFile(char *fileName) {
   int result = 0;
-  int safeguard = 0;
 
   OpenLog.listen();
 
@@ -762,7 +760,7 @@ float get_wgs84_coordinate(unsigned long val)
 }
 
 /* generate log result line */
-bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned long cpm, unsigned long cpb)
+bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long cpm, unsigned long cpb)
 {
   int year = 2012;
   byte month = 0, day = 0, hour = 0, minute = 0, second = 0, hundredths = 0;
@@ -841,7 +839,7 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
 #if ENABLE_SSD1306
   // compute distance
   if (gps.status()) {
-    int trigger_dist = 25;
+    unsigned int trigger_dist = 25;
     float flat = get_wgs84_coordinate(x);
     float flon = get_wgs84_coordinate(y);
 

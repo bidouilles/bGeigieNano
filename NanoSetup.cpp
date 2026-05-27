@@ -63,7 +63,7 @@ void NanoSetup::initialize() {
   }
 }
 
-void NanoSetup::loadFromFile(char * setupFile) {
+void NanoSetup::loadFromFile(const char * setupFile) {
   bool config_changed = false;
   char *config_buffer, *key, *value;
   byte pos, line_length;
