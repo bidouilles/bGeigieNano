@@ -57,6 +57,10 @@ Adafruit_SSD1306 display(OLED_RESET);
 #error("Height incorrect, please fix Adafruit_SSD1306.h!");
 #endif
 
+#if (_SS_MAX_RX_BUFF < 128)
+#error "SoftwareSerial RX buffer too small for TinyGPS NMEA sentences. Set _SS_MAX_RX_BUFF >= 128 in SoftwareSerial.h."
+#endif
+
 // For distance computation
 bool gps_fix_first = true;
 float gps_last_lon = 0, gps_last_lat = 0;
@@ -259,7 +263,9 @@ void enterSleep(void)
 // Nano Settings --------------------------------------------------------------
 static ConfigType config;
 static DoseType dose;
+#if ENABLE_OPENLOG
 NanoSetup nanoSetup(OpenLog, config, dose, line, LINE_SZ);
+#endif
 
 // ****************************************************************************
 // Setup
@@ -277,10 +283,11 @@ void setup()
   wdt_reset();
 #endif
 
-  // Load EEPROM settings
+#if ENABLE_OPENLOG
+  // Load EEPROM settings. nanoSetup holds an OpenLog reference internally,
+  // so it can only be constructed when OpenLog is compiled in.
   nanoSetup.initialize();
 
-#if ENABLE_OPENLOG
   DEBUG_PRINTLN("Initializing OpenLog.");
   OpenLog.begin(9600);
   setupOpenLog();
