@@ -23,6 +23,13 @@ live in the [bGeigieNanoSafecast hardware folder][11].
 
 ![bGeigieNanoKit v1.0r4 board](assembly/bGeigieNanoKit_v1.0r4_board.png)
 
+## Mechanical assembly drawings
+
+12-sheet Pro/ENGINEER drawing pack (BNE02, Issue 02, 2021-09-05) by
+Daryl Bender covering the enclosure, board stack-up, GPS/OpenLog/Geiger
+positioning, and operational interfaces:
+[assembly/bGeigieNano_assembly_drawings.pdf](assembly/bGeigieNano_assembly_drawings.pdf).
+
 ## Pins assignment
 
 | Arduino Fio pin | Target pin |
