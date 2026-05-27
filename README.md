@@ -93,9 +93,17 @@ back to the binary bundled inside `Arduino IDE.app` on macOS.
 Override the port with `make upload PORT=/dev/cu.usbserial-XXXX`.
 
 ## Using the prebuilt image
-You can use directly the prebuilt image to flash the Arduino Fio. Here is an example with Arduino Fio connected to ttyUSB0:
 
-    /usr/bin/avrdude -DV -p atmega328p -P /dev/ttyUSB0 -c arduino -b 57600 -U flash:w:bGeigieNano.hex:i
+You can flash the bundled `bGeigieNano.hex` without recompiling, via
+`arduino-cli` (replace the port with whatever the Fio enumerates as —
+`/dev/cu.usbserial-XXXX` on macOS, `/dev/ttyUSB0` on Linux):
+
+    arduino-cli upload --fqbn arduino:avr:fio --input-file bGeigieNano.hex --port /dev/cu.usbserial-XXXX
+
+If you'd rather drive `avrdude` directly, use the one bundled with the
+Arduino install (the Fio bootloader is Optiboot/STK500v1 at 57600 baud):
+
+    avrdude -p atmega328p -c arduino -b 57600 -P /dev/cu.usbserial-XXXX -D -U flash:w:bGeigieNano.hex:i
 
 # Usage
 Once powered on the bGeigieNano will initiliaze a new log file on the SD card, setup the GPS and start counting the CPM.
