@@ -25,7 +25,11 @@ LIBS  := libraries
 
 # Bump SoftwareSerial RX buffer so TinyGPS NMEA sentences don't overflow.
 # The system header guards the default with #ifndef, so this -D is honored.
-EXTRA_FLAGS := -D_SS_MAX_RX_BUFF=128
+#
+# SSD1306_SPI_ONLY drops the I2C code paths inside the vendored Adafruit
+# SSD1306 library, removing the Wire/TwoWire dependency and freeing ~160 B
+# of RAM. This build always uses the OLED over SPI (OLED_SPI_MODE).
+EXTRA_FLAGS := -D_SS_MAX_RX_BUFF=128 -DSSD1306_SPI_ONLY
 
 # Auto-detect serial port; override with PORT=... on the make command line.
 # Sparkfun's FTDI basic / breakout shows up as /dev/cu.usbserial-*.

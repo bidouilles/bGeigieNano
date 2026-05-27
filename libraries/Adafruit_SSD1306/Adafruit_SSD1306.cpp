@@ -20,7 +20,13 @@ All text above, and the splash screen below must be included in any redistributi
 #include <util/delay.h>
 #include <stdlib.h>
 
+// Define SSD1306_SPI_ONLY to drop the I2C code paths (and the Wire/TwoWire
+// dependency, freeing ~160 B of RAM). Runtime path selection is unchanged;
+// the constructor that passes sid != -1 (the SPI ctor) is the only one that
+// can be called when SSD1306_SPI_ONLY is set.
+#ifndef SSD1306_SPI_ONLY
 #include <Wire.h>
+#endif
 
 #include "Adafruit_GFX.h"
 #include "Adafruit_SSD1306.h"
@@ -174,11 +180,13 @@ void Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr) {
     dcport      = portOutputRegister(digitalPinToPort(dc));
     dcpinmask   = digitalPinToBitMask(dc);
   }
+#ifndef SSD1306_SPI_ONLY
   else
   {
     // I2C Init
 	Wire.begin(); // Is this the right place for this?
   }
+#endif
 
   // Setup reset pin direction (used by both SPI and I2C)  
   pinMode(rst, OUTPUT);
@@ -290,6 +298,7 @@ void Adafruit_SSD1306::ssd1306_command(uint8_t c) {
     //digitalWrite(cs, HIGH);
     *csport |= cspinmask;
   }
+#ifndef SSD1306_SPI_ONLY
   else
   {
     // I2C
@@ -299,6 +308,7 @@ void Adafruit_SSD1306::ssd1306_command(uint8_t c) {
     Wire.write(c);
     Wire.endTransmission();
   }
+#endif
 }
 
 void Adafruit_SSD1306::ssd1306_data(uint8_t c) {
@@ -315,6 +325,7 @@ void Adafruit_SSD1306::ssd1306_data(uint8_t c) {
     //digitalWrite(cs, HIGH);
     *csport |= cspinmask;
   }
+#ifndef SSD1306_SPI_ONLY
   else
   {
     // I2C
@@ -324,6 +335,7 @@ void Adafruit_SSD1306::ssd1306_data(uint8_t c) {
     Wire.write(c);
     Wire.endTransmission();
   }
+#endif
 }
 
 void Adafruit_SSD1306::display(void) {
@@ -351,6 +363,7 @@ void Adafruit_SSD1306::display(void) {
     }
     *csport |= cspinmask;
   }
+#ifndef SSD1306_SPI_ONLY
   else
   {
     // save I2C bitrate
@@ -388,6 +401,7 @@ void Adafruit_SSD1306::display(void) {
     }
     TWBR = twbrbackup;
   }
+#endif
 }
 
 // clear everything

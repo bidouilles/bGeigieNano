@@ -43,7 +43,9 @@
 
 // OLED settings --------------------------------------------------------------
 #if ENABLE_SSD1306
+#ifndef OLED_SPI_MODE
 #include <Wire.h>
+#endif
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
