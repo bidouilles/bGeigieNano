@@ -53,13 +53,24 @@ the total log duration if using a battery of 1300mAh will be (1300/.01)/3600 = 3
 | 6600 |  7d 15:19 |
 
 # Build process
-## Using the Makefile
-    export ARDUINODIR=/home/geigie/arduino-1.0.1/
-    export SERIALDEV=/dev/ttyUSB0
-    export BOARD=fio
-    cp -r libraries /home/geigie/arduino-1.0.1/
-    make
-    make upload
+
+The Makefile is a thin wrapper around [arduino-cli][10]. It targets the
+Arduino Fio (`arduino:avr:fio`) and points the compiler at the vendored
+Adafruit_GFX / Adafruit_SSD1306 libraries under `libraries/` (those have
+local mods — Safecast splash bitmap and reduced font set — needed to fit
+in the 328P's 32 KB of flash).
+
+`arduino-cli` is auto-detected: if it isn't on `PATH`, the Makefile falls
+back to the binary bundled inside `Arduino IDE.app` on macOS.
+
+    make deps     # one-time: install the arduino:avr core
+    make build    # compile sketch into ./build/
+    make upload   # compile + flash (auto-detects /dev/cu.usbserial-*)
+    make monitor  # serial monitor at 9600 baud
+    make hex      # copy compiled .hex to ./bGeigieNano.hex (legacy name)
+    make clean    # remove ./build/
+
+Override the port with `make upload PORT=/dev/cu.usbserial-XXXX`.
 
 ## Using the prebuilt image
 You can use directly the prebuilt image to flash the Arduino Fio. Here is an example with Arduino Fio connected to ttyUSB0:
@@ -104,18 +115,19 @@ The OpenLog should start listening at 9600bps and in Command mode. Here is the c
 
     9600,26,3,2
 
-## SoftwareSerial update
+## SoftwareSerial RX buffer
 
-To make sure all of the NMEA sentences can be received correctly, we will need to update the _SS_MAX_RX_BUFF definition from arduino-1.0.1/libraries/SoftwareSerial/SoftwareSerial.h header file. Here is the modification:
-
-    //#define _SS_MAX_RX_BUFF 64 // RX buffer size -- Old Value is 64
-    #define _SS_MAX_RX_BUFF 128 // RX buffer size for TinyGPS
+TinyGPS needs a 128-byte SoftwareSerial RX buffer or NMEA sentences get
+truncated. The Makefile passes `-D_SS_MAX_RX_BUFF=128` as a build
+property, which the system `SoftwareSerial.h` honors because it guards
+its default with `#ifndef`. If you build with another tool, you must
+either pass the same `-D` flag or patch `SoftwareSerial.h` directly; the
+sketch has a compile-time `#error` that fires if the override is missing.
 
 # Licenses
  * [InterruptHandler and bGeigieMini code][5] - Copyright (c) 2011, Robin Scheibler aka FakuFaku
  * [TinyGPS][6] - Copyright (C) 2008-2012 Mikal Hart
  * bGeigieNano - Copyright (c) 2012, Lionel Bergeret
- * [Makefile][8] - Copyright (c) 2012, Tim Marston
 
 
   [1]: https://github.com/sparkfun/OpenLog "OpenLog"
@@ -125,5 +137,5 @@ To make sure all of the NMEA sentences can be received correctly, we will need t
   [5]: https://github.com/fakufaku/SafecastBGeigie-firmware "SafecastBGeigie-firmware"
   [6]: http://arduiniana.org/libraries/tinygps/ "TinyGPS"
   [7]: https://www.adafruit.com/products/746 "Ultimate GPS"
-  [8]: http://ed.am/dev/make/arduino-mk "Arduino Makefile"
   [9]: http://www.pelican.com/cases_detail.php?Case=1010 "Pelican 1010"
+  [10]: https://arduino.github.io/arduino-cli/ "arduino-cli"
