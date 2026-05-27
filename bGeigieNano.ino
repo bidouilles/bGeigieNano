@@ -71,7 +71,7 @@ unsigned long int gps_distance = 0;
 
 // Geiger settings ------------------------------------------------------------
 #define TIME_INTERVAL 5000
-#define LINE_SZ 100
+#define LINE_SZ 120  // BNRDD with all numeric fields at max width hits ~120 B
 #define BUFFER_SZ 12
 #define STRBUFFER_SZ 32
 #define NX (60000 / TIME_INTERVAL) // 1-minute sliding window in TIME_INTERVAL-sized bins
@@ -180,7 +180,6 @@ static void createFile(char *fileName);
 #endif
 static void gps_program_settings();
 static float read_voltage(int pin);
-static int availableMemory();
 static unsigned long elapsedTime(unsigned long startTime);
 #if ENABLE_100M_TRUNCATION
 static void truncate_100m(char *latitude, char *longitude);
@@ -380,8 +379,6 @@ void setup()
   display.display();
 #endif
 
-  Serial.println(availableMemory());
-
   DEBUG_PRINTLN("Setup completed.");
 }
 
@@ -487,8 +484,14 @@ void loop()
 #if ENABLE_EEPROM_DOSE
       dose.total_count += cpb;
       dose.total_time += TIME_INTERVAL / 1000;
-      if (dose.total_time % BMRDD_EEPROM_DOSE_WRITETIME == 0) {
-         EEPROM_writeAnything(BMRDD_EEPROM_DOSE, dose);
+      // Persist on every WRITETIME elapsed seconds. Tracking a separate
+      // counter avoids the modulus pitfall — % would silently never fire
+      // if TIME_INTERVAL doesn't evenly divide WRITETIME.
+      static unsigned long dose_secs_since_write = 0;
+      dose_secs_since_write += TIME_INTERVAL / 1000;
+      if (dose_secs_since_write >= BMRDD_EEPROM_DOSE_WRITETIME) {
+        EEPROM_writeAnything(BMRDD_EEPROM_DOSE, dose);
+        dose_secs_since_write = 0;
       }
 #endif
 
@@ -589,15 +592,10 @@ void loop()
 // Utility functions
 // ****************************************************************************
 
-/* calculate elapsed time. this takes into account rollover */
+/* elapsed time since startTime — unsigned subtraction wraps correctly
+   across the 49.7-day millis() rollover, so no rollover branch needed. */
 unsigned long elapsedTime(unsigned long startTime) {
-  unsigned long stopTime = millis();
-
-  if (startTime >= stopTime) {
-    return startTime - stopTime;
-  } else {
-    return (ULONG_MAX - (startTime - stopTime));
-  }
+  return millis() - startTime;
 }
 
 #if ENABLE_OPENLOG
@@ -879,10 +877,12 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long cpm, unsigned long
     // **********************************************************************
     // bGeigie mode
     // **********************************************************************
-    // Display uptime
-    hour = uptime/3600;
-    minute = uptime/60 - hour*60;
-    sprintf_P(strbuffer, PSTR("%02dh%02dm"), hour, minute);
+    // Display uptime — use locals so the GPS hour/minute survive for the
+    // common "Display date" block below (otherwise the date line would
+    // print uptime hh:mm with GPS day/month, looking like a real timestamp).
+    byte uph = uptime / 3600;
+    byte upm = uptime / 60 - uph * 60;
+    sprintf_P(strbuffer, PSTR("%02dh%02dm"), uph, upm);
     display.setCursor(92, offset+16);
     display.setTextSize(1);
     display.setTextColor(WHITE);
@@ -1165,16 +1165,6 @@ float read_voltage(int pin)
   static float voltage_divider = (float)VOLTAGE_R2 / (VOLTAGE_R1 + VOLTAGE_R2);
   float result = (float)analogRead(pin)/1024 * 3.3 / voltage_divider;
   return result;
-}
-
-/* get available memory */
-int availableMemory()
-{
-  int size = 1024;
-  byte *buf;
-  while ((buf = (byte *) malloc(--size)) == NULL);
-  free(buf);
-  return size;
 }
 
 #if ENABLE_100M_TRUNCATION
