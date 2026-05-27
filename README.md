@@ -47,18 +47,30 @@ live in the [bGeigieNanoSafecast hardware folder][11].
 * **OpenLog**: 2mA idle, 6mA at maximum recording rate
 * **Adafruit Ultimate GPS**: 25mA acquisition, 20mA tracking
 * **Monochrome OLED 128x32 0.91"**: 4mA 50% turn-on, 7.8mA 100% turn-on
+* **Medcom iRover HV board** (LND-7317 supply): ~21mA, active regulation of the ~500V plateau
 
 ## Estimation
-The total current used at run time can be estimated around 36mA (= 6+6+20+4) per second which will result in a consumption of 0.01mAh (= 36mA/3600). So
-the total log duration if using a battery of 1300mAh will be (1300/.01)/3600 = 36.11 = **36h06m**
+
+Total run-time current:
+
+    6 (Fio) + 6 (OpenLog) + 20 (GPS tracking) + 4 (OLED) + 21 (iRover HV) = 57 mA
+
+Battery life is then `capacity / current`. For a 1300 mAh cell: `1300 / 57 ≈ 22.8 h`, i.e. **~22h50m**.
+
+This matches an early empirical measurement (`git log`, commit `6eefd91`): ~15 h
+on a fully-charged 850 mAh Li-Ion battery, which back-solves to 850/15 ≈ 57 mA.
 
 ## Summary table
 
+Assumes continuous logging with GPS tracking and no sleep mode. Real-world
+durations are typically 10–20% shorter due to LDO dropout cutting the usable
+battery capacity below the rated mAh, and occasional GPS re-acquisition spikes.
+
 | Battery capacity (mAh) | Estimated log duration (days hh:mm) |
 | :-----------: | :-----------: |
-| 1300 | 1d 12:06 |
-| 2600 |  3d 00:13 |
-| 6600 |  7d 15:19 |
+| 1300 | 0d 22:48 |
+| 2600 | 1d 21:37 |
+| 6600 | 4d 19:47 |
 
 # Build process
 
