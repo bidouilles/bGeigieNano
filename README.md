@@ -15,6 +15,14 @@ This is a lighter version of the bGeigie Mini which is meant to fit in a Pelican
 
 ![bGeigieNano](https://raw.github.com/bidouilles/bGeigieNano/bGeigieNanoKit/assembly/bGeigieNanoKit_bb_600.jpg)
 
+## Board design (bGeigieNanoKit v1.0r4)
+
+PCB layout for the nano kit 1.0 reference build, designed by Lionel
+Bergeret, Pieter Franken and Naim Busek (CC BY-SA 3.0). Source files
+live in the [bGeigieNanoSafecast hardware folder][11].
+
+![bGeigieNanoKit v1.0r4 board](assembly/bGeigieNanoKit_v1.0r4_board.png)
+
 ## Pins assignment
 
 | Arduino Fio pin | Target pin |
@@ -139,3 +147,4 @@ sketch has a compile-time `#error` that fires if the override is missing.
   [7]: https://www.adafruit.com/products/746 "Ultimate GPS"
   [9]: http://www.pelican.com/cases_detail.php?Case=1010 "Pelican 1010"
   [10]: https://arduino.github.io/arduino-cli/ "arduino-cli"
+  [11]: https://github.com/Safecast/bGeigieNanoSafecast/tree/master/hardware "bGeigieNanoSafecast hardware"
