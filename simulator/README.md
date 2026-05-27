@@ -8,6 +8,8 @@ dependencies — open `index.html` in any modern browser.
 open simulator/index.html
 ```
 
+<img src="preview.png" alt="bGeigie Nano firmware simulator" width="720">
+
 ## What it shows
 
 - **128×32 OLED panel** at 4× CSS zoom, rendered pixel-by-pixel from the

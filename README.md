@@ -2,15 +2,6 @@
 
 This is a lighter version of the bGeigie Mini which is meant to fit in a Pelican Micro Case 1010.
 
-## Preview
-
-<img src="simulator/preview.png" alt="bGeigie Nano firmware simulator" width="720">
-
-In-browser preview of the OLED + serial log behavior — open
-[simulator/index.html](simulator/index.html) directly, no build needed.
-See [simulator/README.md](simulator/README.md) for what's accurate vs.
-approximated.
-
 # Requirements
 * [Arduino Fio][3]
 * [OpenLog][1]
