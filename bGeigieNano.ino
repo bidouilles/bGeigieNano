@@ -43,7 +43,9 @@
 
 // OLED settings --------------------------------------------------------------
 #if ENABLE_SSD1306
+#ifndef OLED_SPI_MODE
 #include <Wire.h>
+#endif
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
@@ -57,6 +59,10 @@ Adafruit_SSD1306 display(OLED_RESET);
 #error("Height incorrect, please fix Adafruit_SSD1306.h!");
 #endif
 
+#if (_SS_MAX_RX_BUFF < 128)
+#error "SoftwareSerial RX buffer too small for TinyGPS NMEA sentences. Set _SS_MAX_RX_BUFF >= 128 in SoftwareSerial.h."
+#endif
+
 // For distance computation
 bool gps_fix_first = true;
 float gps_last_lon = 0, gps_last_lat = 0;
@@ -65,10 +71,10 @@ unsigned long int gps_distance = 0;
 
 // Geiger settings ------------------------------------------------------------
 #define TIME_INTERVAL 5000
-#define LINE_SZ 100
+#define LINE_SZ 120  // BNRDD with all numeric fields at max width hits ~120 B
 #define BUFFER_SZ 12
 #define STRBUFFER_SZ 32
-#define NX 12
+#define NX (60000 / TIME_INTERVAL) // 1-minute sliding window in TIME_INTERVAL-sized bins
 #define AVAILABLE 'A'  // indicates geiger data are ready (available)
 #define VOID      'V'  // indicates geiger data not ready (void)
 
@@ -109,6 +115,10 @@ HardwareCounter hwc(HARDWARE_COUNTER_TIMER1, TIME_INTERVAL);
 #else
 #define IS_READY (interruptCounterAvailable())
 #endif
+
+// Last counter value, for delta-based sampling that does not race with
+// the hardware reset.
+COUNTER_TYPE prev_count = 0;
 
 // OpenLog settings -----------------------------------------------------------
 #if ENABLE_OPENLOG
@@ -162,16 +172,14 @@ static void sendstring(TinyGPS &gps, const PROGMEM char *str)
 // Atmel Tips and Tricks: 3.6 Tip #6 – Access types: Static
 static unsigned long cpm_gen();
 static bool gps_gen_filename(TinyGPS &gps, char *buf);
-static bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned long cpm, unsigned long cpb);
+static bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long cpm, unsigned long cpb);
 static char checksum(char *s, int N);
 #if ENABLE_OPENLOG
 static void setupOpenLog();
-static bool loadConfig(char *fileName);
 static void createFile(char *fileName);
 #endif
 static void gps_program_settings();
 static float read_voltage(int pin);
-static int availableMemory();
 static unsigned long elapsedTime(unsigned long startTime);
 #if ENABLE_100M_TRUNCATION
 static void truncate_100m(char *latitude, char *longitude);
@@ -255,7 +263,9 @@ void enterSleep(void)
 // Nano Settings --------------------------------------------------------------
 static ConfigType config;
 static DoseType dose;
+#if ENABLE_OPENLOG
 NanoSetup nanoSetup(OpenLog, config, dose, line, LINE_SZ);
+#endif
 
 // ****************************************************************************
 // Setup
@@ -273,10 +283,11 @@ void setup()
   wdt_reset();
 #endif
 
-  // Load EEPROM settings
+#if ENABLE_OPENLOG
+  // Load EEPROM settings. nanoSetup holds an OpenLog reference internally,
+  // so it can only be constructed when OpenLog is compiled in.
   nanoSetup.initialize();
 
-#if ENABLE_OPENLOG
   DEBUG_PRINTLN("Initializing OpenLog.");
   OpenLog.begin(9600);
   setupOpenLog();
@@ -290,12 +301,14 @@ void setup()
 #if ENABLE_HARDWARE_COUNTER
   // Start the Pulse Counter!
   hwc.start();
+  prev_count = hwc.count();
 #else
   // Create pulse counter
   interruptCounterSetup(INTERRUPT_COUNTER_PIN, TIME_INTERVAL);
 
   // And now Start the Pulse Counter!
   interruptCounterReset();
+  prev_count = interruptCounterCount();
 #endif
 
 #if ENABLE_SOFTGPS
@@ -365,8 +378,6 @@ void setup()
   }
   display.display();
 #endif
-
-  Serial.println(availableMemory());
 
   DEBUG_PRINTLN("Setup completed.");
 }
@@ -446,19 +457,17 @@ void loop()
       wdt_reset();
 #endif
 
+      // read the current free-running counter, then derive this bin's count
+      // by diffing against the previous read. The hardware is never reset
+      // between samples, so pulses arriving during the read can't be lost.
+      // The unsigned subtraction is correct across one wrap of COUNTER_TYPE.
 #if ENABLE_HARDWARE_COUNTER
-      // obtain the count in the last bin
-      cpb = hwc.count();
-
-      // reset the pulse counter
-      hwc.start();
+      COUNTER_TYPE this_count = hwc.count();
 #else
-      // obtain the count in the last bin
-      cpb = interruptCounterCount();
-
-      // reset the pulse counter
-      interruptCounterReset();
+      COUNTER_TYPE this_count = interruptCounterCount();
 #endif
+      cpb = (COUNTER_TYPE)(this_count - prev_count);
+      prev_count = this_count;
 
       // insert count in sliding window and compute CPM
       shift_reg[reg_index] = cpb;     // put the count in the correct bin
@@ -467,16 +476,22 @@ void loop()
 
       // update the total counter
       total_count += cpb;
-      uptime += 5;
+      uptime += TIME_INTERVAL / 1000;
 
       // update max cpm
       if (cpm > max_count) max_count = cpm;
 
 #if ENABLE_EEPROM_DOSE
       dose.total_count += cpb;
-      dose.total_time += 5;
-      if (dose.total_time % BMRDD_EEPROM_DOSE_WRITETIME == 0) {
-         EEPROM_writeAnything(BMRDD_EEPROM_DOSE, dose);
+      dose.total_time += TIME_INTERVAL / 1000;
+      // Persist on every WRITETIME elapsed seconds. Tracking a separate
+      // counter avoids the modulus pitfall — % would silently never fire
+      // if TIME_INTERVAL doesn't evenly divide WRITETIME.
+      static unsigned long dose_secs_since_write = 0;
+      dose_secs_since_write += TIME_INTERVAL / 1000;
+      if (dose_secs_since_write >= BMRDD_EEPROM_DOSE_WRITETIME) {
+        EEPROM_writeAnything(BMRDD_EEPROM_DOSE, dose);
+        dose_secs_since_write = 0;
       }
 #endif
 
@@ -514,7 +529,7 @@ void loop()
 #ifdef ENABLE_LND_DEADTIME
            sprintf_P(strbuffer, PSTR("nano\n# deadtime=on\n"));
 #else
-           sprintf_P(strbuffer, PSTR("nano\n));
+           sprintf_P(strbuffer, PSTR("nano\n"));
 #endif
            OpenLog.print(strbuffer);
            DEBUG_PRINT(strbuffer);
@@ -539,7 +554,7 @@ void loop()
       // we printed the timestamp. otherwise, the GPS is still
       // updating so wait until its finished and generate timestamp
       memset(line, 0, LINE_SZ);
-      gps_gen_timestamp(gps, line, shift_reg[reg_index], cpm, cpb);
+      gps_gen_timestamp(gps, line, cpm, cpb);
 
       // Printout line
       Serial.println(line);
@@ -577,15 +592,10 @@ void loop()
 // Utility functions
 // ****************************************************************************
 
-/* calculate elapsed time. this takes into account rollover */
+/* elapsed time since startTime — unsigned subtraction wraps correctly
+   across the 49.7-day millis() rollover, so no rollover branch needed. */
 unsigned long elapsedTime(unsigned long startTime) {
-  unsigned long stopTime = millis();
-
-  if (startTime >= stopTime) {
-    return startTime - stopTime;
-  } else {
-    return (ULONG_MAX - (startTime - stopTime));
-  }
+  return millis() - startTime;
 }
 
 #if ENABLE_OPENLOG
@@ -632,7 +642,6 @@ void setupOpenLog() {
 /* create a new file */
 void createFile(char *fileName) {
   int result = 0;
-  int safeguard = 0;
 
   OpenLog.listen();
 
@@ -730,7 +739,7 @@ void get_coordinate_string(bool is_latitude, unsigned long val, char *buf)
   unsigned long left = 0;
   unsigned long right = 0;
 
-  left = val/100000.0;
+  left = val / 100000;
   right = (val - left*100000)/10;
   if (is_latitude) {
     sprintf_P(buf, PSTR("%04ld.%04ld"), left, right);
@@ -749,7 +758,7 @@ float get_wgs84_coordinate(unsigned long val)
 }
 
 /* generate log result line */
-bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned long cpm, unsigned long cpb)
+bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long cpm, unsigned long cpb)
 {
   int year = 2012;
   byte month = 0, day = 0, hour = 0, minute = 0, second = 0, hundredths = 0;
@@ -828,7 +837,7 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
 #if ENABLE_SSD1306
   // compute distance
   if (gps.status()) {
-    int trigger_dist = 25;
+    unsigned int trigger_dist = 25;
     float flat = get_wgs84_coordinate(x);
     float flon = get_wgs84_coordinate(y);
 
@@ -868,10 +877,12 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
     // **********************************************************************
     // bGeigie mode
     // **********************************************************************
-    // Display uptime
-    hour = uptime/3600;
-    minute = uptime/60 - hour*60;
-    sprintf_P(strbuffer, PSTR("%02dh%02dm"), hour, minute);
+    // Display uptime — use locals so the GPS hour/minute survive for the
+    // common "Display date" block below (otherwise the date line would
+    // print uptime hh:mm with GPS day/month, looking like a real timestamp).
+    byte uph = uptime / 3600;
+    byte upm = uptime / 60 - uph * 60;
+    sprintf_P(strbuffer, PSTR("%02dh%02dm"), uph, upm);
     display.setCursor(92, offset+16);
     display.setTextSize(1);
     display.setTextColor(WHITE);
@@ -885,15 +896,21 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
     } else {
       display.setTextColor(WHITE);
     }
-    if (cpm > 1000) {
-      dtostrf((float)(cpm/1000), 0, 1, strbuffer);
+    // kCPM (>=1000) uses float division — the previous (cpm/1000) was an
+    // integer divide that dropped the fractional digit (1750 -> "1.0k").
+    if (cpm >= 10000) {
+      dtostrf((float)cpm / 1000.0, 0, 1, strbuffer);
       display.print(strbuffer);
-      display.print("k");
+      sprintf_P(strbuffer, PSTR("kCPM"));
+    } else if (cpm >= 1000) {
+      dtostrf((float)cpm / 1000.0, 0, 2, strbuffer);
+      display.print(strbuffer);
+      sprintf_P(strbuffer, PSTR("kCPM"));
     } else {
       dtostrf((float)cpm, 0, 0, strbuffer);
       display.print(strbuffer);
+      sprintf_P(strbuffer, PSTR(" CPM"));
     }
-    sprintf_P(strbuffer, PSTR(" CPM"));
     display.print(strbuffer);
 
     // Display SD, GPS and Geiger states
@@ -921,11 +938,24 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
     display.setTextColor(WHITE);
     display.setCursor(0, offset+16); // textsize*8
     if (config.mode == GEIGIE_MODE_USVH) {
-      dtostrf((float)(cpm/config.cpm_factor), 0, 3, strbuffer);
-      display.print(strbuffer);
-      sprintf_P(strbuffer, PSTR(" uSv/h"));
+      // Auto-switch to mSv/h above 1000 uSv/h (1 mSv/h ≈ 334k CPM at LND default).
+      // Reduce to 2 decimals above 10 uSv/h to keep the line from overflowing.
+      float usvh = (float)cpm / config.cpm_factor;
+      if (usvh >= 1000.0) {
+        dtostrf(usvh / 1000.0, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" mSv/h"));
+      } else if (usvh >= 10.0) {
+        dtostrf(usvh, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" uSv/h"));
+      } else {
+        dtostrf(usvh, 0, 3, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" uSv/h"));
+      }
       display.println(strbuffer);
-    } 
+    }
     else if (config.mode == GEIGIE_MODE_BQM2) {
       dtostrf((float)(cpm*config.bqm_factor), 0, 3, strbuffer);
       display.print(strbuffer);
@@ -965,25 +995,43 @@ bool gps_gen_timestamp(TinyGPS &gps, char *buf, unsigned long counts, unsigned l
     }
     display.setTextSize(2);
     display.setCursor(0, offset); // textsize*8
-    dtostrf((float)(cpm/config.cpm_factor), 0, 2, strbuffer);
-    display.print(strbuffer);
-    sprintf_P(strbuffer, PSTR(" uS/h"));
-    display.print(strbuffer);
+    {
+      // Same mSv/h auto-switch as the bGeigie mode display.
+      float ush = (float)cpm / config.cpm_factor;
+      if (ush >= 1000.0) {
+        dtostrf(ush / 1000.0, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" mS/h"));
+      } else if (ush >= 10.0) {
+        dtostrf(ush, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" uS/h"));
+      } else {
+        dtostrf(ush, 0, 3, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" uS/h"));
+      }
+      display.print(strbuffer);
+    }
 
     display.setCursor(0, offset+16);
     display.setTextSize(1);
     display.setTextColor(WHITE);
     if (toggle) {
-      // Display CPM
-      if (cpm > 1000) {
-        dtostrf((float)(cpm/1000), 0, 1, strbuffer);
+      // Display CPM. Same int-divide fix + >=10000 branch as bGeigie mode.
+      if (cpm >= 10000) {
+        dtostrf((float)cpm / 1000.0, 0, 1, strbuffer);
         display.print(strbuffer);
-        display.print("k");
+        sprintf_P(strbuffer, PSTR("kCPM "));
+      } else if (cpm >= 1000) {
+        dtostrf((float)cpm / 1000.0, 0, 2, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR("kCPM "));
       } else {
-        display.print(cpm);
-        display.print(" ");
+        dtostrf((float)cpm, 0, 0, strbuffer);
+        display.print(strbuffer);
+        sprintf_P(strbuffer, PSTR(" CPM "));
       }
-      sprintf_P(strbuffer, PSTR("CPM "));
       display.print(strbuffer);
 
       // Display bq/m2
@@ -1117,16 +1165,6 @@ float read_voltage(int pin)
   static float voltage_divider = (float)VOLTAGE_R2 / (VOLTAGE_R1 + VOLTAGE_R2);
   float result = (float)analogRead(pin)/1024 * 3.3 / voltage_divider;
   return result;
-}
-
-/* get available memory */
-int availableMemory()
-{
-  int size = 1024;
-  byte *buf;
-  while ((buf = (byte *) malloc(--size)) == NULL);
-  free(buf);
-  return size;
 }
 
 #if ENABLE_100M_TRUNCATION

@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>bGeigie Nano simulator</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181b22;
+    --border: #262b35;
+    --fg: #d9dee7;
+    --muted: #8d97a8;
+    --accent: #9ad9fa;       /* OLED pixel color */
+    --log: #6ec46e;          /* serial log color */
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    margin: 0; padding: 28px 24px; line-height: 1.4;
+  }
+  .container { max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+
+  /* phase breadcrumb */
+  .breadcrumb {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    margin: 0 0 14px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 11px; letter-spacing: 0.04em;
+  }
+  .breadcrumb .step {
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 4px 10px; border-radius: 4px;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .breadcrumb .step.done { color: var(--fg); border-color: #3a4151; }
+  .breadcrumb .step.active {
+    background: var(--accent); color: #000;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .breadcrumb .sep { color: var(--border); align-self: center; font-size: 12px; }
+
+  .deck { display: flex; gap: 20px; flex-wrap: wrap; align-items: stretch; }
+  .device {
+    background: #000;
+    padding: 16px 18px; border-radius: 10px;
+    border: 1px solid var(--border);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.02), 0 10px 30px rgba(0,0,0,0.4);
+    display: flex; flex-direction: column; gap: 14px;
+    flex: 0 0 auto;
+  }
+  .device-body { display: flex; flex-direction: column; align-items: center; gap: 10px; flex: 1; justify-content: center; }
+  canvas.oled {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #000;
+    width: 512px; height: 128px;
+  }
+  .meta {
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 11px; color: var(--muted); letter-spacing: 0.02em;
+    text-align: center;
+  }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  button {
+    background: #232833; color: #eee;
+    border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 5px;
+    cursor: pointer; font-size: 12px;
+    font-family: inherit;
+  }
+  button:hover { background: #2c3240; border-color: #3a4151; }
+  button.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 14px 16px; border-radius: 8px;
+    flex: 1; min-width: 240px;
+    display: flex; flex-direction: column;
+  }
+  .panel h2 { font-size: 11px; font-weight: 600; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .rows { display: flex; flex-direction: column; justify-content: space-around; flex: 1; }
+  .row { display: flex; justify-content: space-between; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; padding: 2px 0; }
+  .row span:last-child { color: var(--accent); }
+
+  .log-wrap { margin-top: 24px; }
+  .log-wrap h2 { font-size: 11px; font-weight: 600; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .log {
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: #0a0d12; border: 1px solid var(--border);
+    padding: 12px 14px; border-radius: 6px;
+    height: 260px; overflow: auto;
+    white-space: pre; color: var(--log);
+    line-height: 1.55;
+    margin: 0;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>bGeigie Nano firmware simulator</h1>
+  <p class="sub">128×32 OLED + BNRDD serial log, driven by a synthetic CPM/GPS stream.</p>
+
+  <div class="breadcrumb" id="breadcrumb">
+    <span class="step" data-phase="0">SPLASH</span>
+    <span class="sep">→</span>
+    <span class="step" data-phase="1">BANNER</span>
+    <span class="sep">→</span>
+    <span class="step" data-phase="2">WAITING_GPS</span>
+    <span class="sep">→</span>
+    <span class="step" data-phase="3">WARMING</span>
+    <span class="sep">→</span>
+    <span class="step" data-phase="4">RECORDING</span>
+  </div>
+
+  <div class="deck">
+    <div class="device">
+      <div class="device-body">
+        <canvas class="oled" id="oled" width="128" height="32"></canvas>
+        <div class="meta" id="meta">phase=BOOT  sim_t=0.0s</div>
+      </div>
+      <div class="controls">
+        <button id="reset">Reset</button>
+        <button id="speed">1× speed</button>
+        <button id="pause">Pause</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Live state</h2>
+      <div class="rows">
+        <div class="row"><span>cpm</span><span id="s-cpm">0</span></div>
+        <div class="row"><span>cpb (5s)</span><span id="s-cpb">0</span></div>
+        <div class="row"><span>total count</span><span id="s-total">0</span></div>
+        <div class="row"><span>uptime</span><span id="s-uptime">0s</span></div>
+        <div class="row"><span>geiger status</span><span id="s-geiger">V</span></div>
+        <div class="row"><span>gps status</span><span id="s-gps">V</span></div>
+        <div class="row"><span>satellites</span><span id="s-sats">0</span></div>
+        <div class="row"><span>hdop</span><span id="s-hdop">--</span></div>
+        <div class="row"><span>lat / lon</span><span id="s-pos">--</span></div>
+        <div class="row"><span>distance (km)</span><span id="s-dist">0.0</span></div>
+        <div class="row"><span>battery</span><span id="s-batt">--</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="log-wrap">
+    <h2>Serial log ($BNRDD…)</h2>
+    <pre class="log" id="log"></pre>
+  </div>
+</div>
+
+<script>
+// ---- Constants from the firmware ------------------------------------------
+const DEVICE_ID = 210;
+const USER_NAME = 'Lionel';
+const VERSION   = '1.0.2';
+const CPM_FACTOR = 334;
+const NX         = 12;
+const TIME_INTERVAL_SEC = 5;
+const MAX_LOG_LINES = 60;
+
+// ---- Phase state machine --------------------------------------------------
+const PHASE = { SPLASH: 0, BANNER: 1, WAITING_GPS: 2, WARMING: 3, RECORDING: 4 };
+const PHASE_NAME = ['SPLASH', 'BANNER', 'WAITING_GPS', 'WARMING', 'RECORDING'];
+
+// ---- Simulator state ------------------------------------------------------
+let phase = PHASE.SPLASH;
+let phaseStart = 0;
+let simTime = 0;        // ms in firmware-time
+let lastFrame = performance.now();
+let lastTick = 0;       // last 5s-tick boundary in simTime
+let speed = 1;
+let paused = false;
+
+// geiger
+let cpm = 0, cpb = 0, totalCount = 0;
+let shiftReg = new Array(NX).fill(0);
+let regIdx = 0, strCount = 0;
+let geigerStatus = 'V';
+let uptime = 0;
+let totalTime = 0;
+let toggle = 0;
+
+// gps
+let gpsStatus = 'V';
+let lat = 35.6810, lon = 139.7670;   // Tokyo
+let alt = 50, nbsat = 0, hdop = 0;
+let distKm = 0;
+let driftPhase = Math.random() * Math.PI * 2;
+
+// battery (0..8 pixel bar)
+let batteryBar = 7;
+let batteryV = 4.10;
+
+// log
+let logLines = [];
+
+// ---- OLED canvas ----------------------------------------------------------
+const oled = document.getElementById('oled');
+const ctx = oled.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+const ACCENT = '#9ad9fa';
+
+// Adafruit GFX 5x7 bitmap font (chars 0x20..0x7E). 5 bytes per char, each
+// byte = one column, LSB = top row, MSB = bottom row. Lifted verbatim from
+// libraries/Adafruit_GFX/glcdfont.c so the simulator renders the same
+// glyphs the device would draw.
+const FONT5x7 = [
+  0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x5F,0x00,0x00, 0x00,0x07,0x00,0x07,0x00,
+  0x14,0x7F,0x14,0x7F,0x14, 0x24,0x2A,0x7F,0x2A,0x12, 0x23,0x13,0x08,0x64,0x62,
+  0x36,0x49,0x56,0x20,0x50, 0x00,0x08,0x07,0x03,0x00, 0x00,0x1C,0x22,0x41,0x00,
+  0x00,0x41,0x22,0x1C,0x00, 0x2A,0x1C,0x7F,0x1C,0x2A, 0x08,0x08,0x3E,0x08,0x08,
+  0x00,0x80,0x70,0x30,0x00, 0x08,0x08,0x08,0x08,0x08, 0x00,0x00,0x60,0x60,0x00,
+  0x20,0x10,0x08,0x04,0x02, 0x3E,0x51,0x49,0x45,0x3E, 0x00,0x42,0x7F,0x40,0x00,
+  0x72,0x49,0x49,0x49,0x46, 0x21,0x41,0x49,0x4D,0x33, 0x18,0x14,0x12,0x7F,0x10,
+  0x27,0x45,0x45,0x45,0x39, 0x3C,0x4A,0x49,0x49,0x31, 0x41,0x21,0x11,0x09,0x07,
+  0x36,0x49,0x49,0x49,0x36, 0x46,0x49,0x49,0x29,0x1E, 0x00,0x00,0x14,0x00,0x00,
+  0x00,0x40,0x34,0x00,0x00, 0x00,0x08,0x14,0x22,0x41, 0x14,0x14,0x14,0x14,0x14,
+  0x00,0x41,0x22,0x14,0x08, 0x02,0x01,0x59,0x09,0x06, 0x3E,0x41,0x5D,0x59,0x4E,
+  0x7C,0x12,0x11,0x12,0x7C, 0x7F,0x49,0x49,0x49,0x36, 0x3E,0x41,0x41,0x41,0x22,
+  0x7F,0x41,0x41,0x41,0x3E, 0x7F,0x49,0x49,0x49,0x41, 0x7F,0x09,0x09,0x09,0x01,
+  0x3E,0x41,0x41,0x51,0x73, 0x7F,0x08,0x08,0x08,0x7F, 0x00,0x41,0x7F,0x41,0x00,
+  0x20,0x40,0x41,0x3F,0x01, 0x7F,0x08,0x14,0x22,0x41, 0x7F,0x40,0x40,0x40,0x40,
+  0x7F,0x02,0x1C,0x02,0x7F, 0x7F,0x04,0x08,0x10,0x7F, 0x3E,0x41,0x41,0x41,0x3E,
+  0x7F,0x09,0x09,0x09,0x06, 0x3E,0x41,0x51,0x21,0x5E, 0x7F,0x09,0x19,0x29,0x46,
+  0x26,0x49,0x49,0x49,0x32, 0x03,0x01,0x7F,0x01,0x03, 0x3F,0x40,0x40,0x40,0x3F,
+  0x1F,0x20,0x40,0x20,0x1F, 0x3F,0x40,0x38,0x40,0x3F, 0x63,0x14,0x08,0x14,0x63,
+  0x03,0x04,0x78,0x04,0x03, 0x61,0x59,0x49,0x4D,0x43, 0x00,0x7F,0x41,0x41,0x41,
+  0x02,0x04,0x08,0x10,0x20, 0x00,0x41,0x41,0x41,0x7F, 0x04,0x02,0x01,0x02,0x04,
+  0x40,0x40,0x40,0x40,0x40, 0x00,0x03,0x07,0x08,0x00, 0x20,0x54,0x54,0x78,0x40,
+  0x7F,0x28,0x44,0x44,0x38, 0x38,0x44,0x44,0x44,0x28, 0x38,0x44,0x44,0x28,0x7F,
+  0x38,0x54,0x54,0x54,0x18, 0x00,0x08,0x7E,0x09,0x02, 0x18,0xA4,0xA4,0x9C,0x78,
+  0x7F,0x08,0x04,0x04,0x78, 0x00,0x44,0x7D,0x40,0x00, 0x20,0x40,0x40,0x3D,0x00,
+  0x7F,0x10,0x28,0x44,0x00, 0x00,0x41,0x7F,0x40,0x00, 0x7C,0x04,0x78,0x04,0x78,
+  0x7C,0x08,0x04,0x04,0x78, 0x38,0x44,0x44,0x44,0x38, 0xFC,0x18,0x24,0x24,0x18,
+  0x18,0x24,0x24,0x18,0xFC, 0x7C,0x08,0x04,0x04,0x08, 0x48,0x54,0x54,0x54,0x24,
+  0x04,0x04,0x3F,0x44,0x24, 0x3C,0x40,0x40,0x20,0x7C, 0x1C,0x20,0x40,0x20,0x1C,
+  0x3C,0x40,0x30,0x40,0x3C, 0x44,0x28,0x10,0x28,0x44, 0x4C,0x90,0x90,0x90,0x7C,
+  0x44,0x64,0x54,0x4C,0x44, 0x00,0x08,0x36,0x41,0x00, 0x00,0x00,0x77,0x00,0x00,
+  0x00,0x41,0x36,0x08,0x00, 0x02,0x01,0x02,0x04,0x02,
+];
+
+function clearScreen() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 128, 32);
+}
+
+// Draw one character pixel-by-pixel from the 5x7 font.
+//   size=1 -> 5x7 glyph in a 6x8 cell (1px right + 1px bottom gap)
+//   size=2 -> 10x14 glyph in a 12x16 cell
+function drawChar(ch, x, y, size, invert) {
+  const code = ch.charCodeAt(0);
+  if (code < 0x20 || code > 0x7E) return;  // unsupported -> blank
+  const base = (code - 0x20) * 5;
+  const cellW = 6 * size;
+  const cellH = 8 * size;
+
+  // background for inverted text
+  if (invert) {
+    ctx.fillStyle = ACCENT;
+    ctx.fillRect(x, y, cellW, cellH);
+  }
+  ctx.fillStyle = invert ? '#000' : ACCENT;
+
+  for (let col = 0; col < 5; col++) {
+    const bits = FONT5x7[base + col];
+    for (let row = 0; row < 8; row++) {
+      if (bits & (1 << row)) {
+        ctx.fillRect(x + col * size, y + row * size, size, size);
+      }
+    }
+  }
+}
+
+function drawText(s, x, y, size = 1, invert = false) {
+  const cellW = 6 * size;
+  for (let i = 0; i < s.length; i++) {
+    drawChar(s[i], x + i * cellW, y, size, invert);
+  }
+}
+
+// ---- Render ---------------------------------------------------------------
+function render() {
+  clearScreen();
+  switch (phase) {
+    case PHASE.SPLASH:  renderSplash(); break;
+    case PHASE.BANNER:  renderBanner(); break;
+    default:            renderMain();   break;
+  }
+}
+
+function renderSplash() {
+  // The real firmware shows the Safecast logo bitmap (in libraries/Adafruit
+  // _SSD1306/Adafruit_SSD1306.cpp). Approximated here with centered text +
+  // a 1px frame drawn as fillRects so it stays crisp at 4x zoom.
+  drawText('SAFECAST', 40, 13, 1);
+  ctx.fillStyle = ACCENT;
+  ctx.fillRect(32, 8, 64, 1);   // top
+  ctx.fillRect(32, 23, 64, 1);  // bottom
+  ctx.fillRect(32, 8, 1, 16);   // left
+  ctx.fillRect(95, 8, 1, 16);   // right
+}
+
+function renderBanner() {
+  // "Geigie Nano 1.0.2" centered at row 0 (with b/x prefix)
+  const head = `b Geigie Nano ${VERSION}`;
+  const headX = Math.max(0, Math.floor((128 - head.length * 6) / 2));
+  drawText(head, headX, 0, 1);
+  // "#0210" big text row 1
+  const id = `#${String(DEVICE_ID).padStart(4, '0')}`;
+  drawText(id, 40, 8, 2);
+  // username centered row 3
+  const u = USER_NAME;
+  const ux = Math.max(0, Math.floor((128 - u.length * 6) / 2));
+  drawText(u, ux, 24, 1);
+}
+
+function renderMain() {
+  // Row 0..15, size 2: big CPM on the left
+  drawText(formatCPM(cpm), 0, 0, 2, geigerStatus === 'V');
+
+  // Top-right, row 0 size 1: sat count or "No GPS"
+  if (gpsStatus === 'V') {
+    drawText('No GPS', 92, 0, 1);
+  } else {
+    drawText(`^${nbsat.toString(16).toUpperCase()}`, 116, 0, 1);
+  }
+
+  // Row 8 right: distance or altitude (alternates)
+  if (toggle) {
+    const s = distKm.toFixed(1) + 'km';
+    drawText(s, 128 - s.length * 6 - 2, 8, 1);
+  } else {
+    const s = gpsStatus === 'A' ? Math.round(alt) + 'm' : '--m';
+    drawText(s, 128 - s.length * 6 - 2, 8, 1);
+  }
+
+  // Row 16 left: uSv/h (with mSv/h auto-switch)
+  drawText(formatUsv(cpm), 0, 16, 1);
+
+  // Row 16 right: uptime "00h05m"
+  const uph = Math.floor(uptime / 3600);
+  const upm = Math.floor(uptime / 60) - uph * 60;
+  drawText(`${pad2(uph)}h${pad2(upm)}m`, 92, 16, 1);
+
+  // Row 24 left: date dd/mm hh:mm:ss
+  const now = new Date(Date.now());
+  drawText(
+    `${pad2(now.getDate())}/${pad2(now.getMonth() + 1)} ${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`,
+    0, 24, 1
+  );
+
+  // Row 24 right: battery 12x7 outline with bars. Use fillRect for the
+  // outline to avoid Canvas strokeRect's half-pixel antialiasing.
+  ctx.fillStyle = ACCENT;
+  ctx.fillRect(116, 24, 12, 1);  // top
+  ctx.fillRect(116, 30, 12, 1);  // bottom
+  ctx.fillRect(116, 24, 1, 7);   // left
+  ctx.fillRect(127, 24, 1, 7);   // right
+  ctx.fillRect(118, 26, batteryBar, 3);
+}
+
+function formatCPM(c) {
+  if (c >= 10000) return (c / 1000).toFixed(1) + 'kCPM';
+  if (c >= 1000)  return (c / 1000).toFixed(2) + 'kCPM';
+  return c + ' CPM';
+}
+
+function formatUsv(c) {
+  const usv = c / CPM_FACTOR;
+  if (usv >= 1000) return (usv / 1000).toFixed(2) + ' mSv/h';
+  if (usv >= 10)   return usv.toFixed(2)   + ' uSv/h';
+  return            usv.toFixed(3)   + ' uSv/h';
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+// ---- Simulation tick (5-second firmware tick) -----------------------------
+function fiveSecondTick() {
+  // Background mean CPM with slow drift + occasional spike
+  const meanCpm = 20 + 15 * Math.sin(simTime / 30000 + driftPhase);
+  const meanBin = meanCpm / NX;
+  // simple Poisson approximation: pull from N(mean, sqrt(mean))
+  cpb = Math.max(0, Math.round(meanBin + (Math.random() + Math.random() - 1) * Math.sqrt(meanBin + 1) * 2));
+  // 2% chance of a brief spike
+  if (Math.random() < 0.02) cpb += 20 + Math.floor(Math.random() * 80);
+
+  shiftReg[regIdx] = cpb;
+  regIdx = (regIdx + 1) % NX;
+  cpm = shiftReg.reduce((a, b) => a + b, 0);
+
+  // dead-time compensation (matches firmware)
+  cpm = Math.round(cpm / (1 - cpm * 1.8833e-6));
+
+  totalCount += cpb;
+  uptime += TIME_INTERVAL_SEC;
+  totalTime += TIME_INTERVAL_SEC;
+
+  // Geiger status: VOID until shift register fills, AVAILABLE after
+  if (strCount < NX) {
+    geigerStatus = 'V';
+    strCount++;
+  } else if (cpm === 0) {
+    geigerStatus = 'V';
+  } else {
+    geigerStatus = 'A';
+  }
+
+  // GPS evolution
+  if (gpsStatus === 'A') {
+    const dlat = (Math.random() - 0.5) * 0.00012;
+    const dlon = (Math.random() - 0.5) * 0.00012;
+    lat += dlat;
+    lon += dlon;
+    alt += (Math.random() - 0.5) * 0.6;
+    nbsat = 6 + Math.floor(Math.random() * 5);
+    hdop = 80 + Math.floor(Math.random() * 90);
+    // crude great-circle ish distance
+    const dist = Math.sqrt(dlat * dlat + dlon * dlon) * 111000;
+    if (dist > 5) distKm += dist / 1000;
+  }
+
+  // Battery slow drain
+  if (Math.random() < 0.05) {
+    batteryV = Math.max(3.40, batteryV - 0.002);
+    batteryBar = Math.max(0, Math.min(8, Math.round((batteryV - 3.5) * 8 / 0.8)));
+  }
+
+  // Log line if recording
+  if (phase === PHASE.RECORDING) {
+    appendLog(buildBNRDD());
+  }
+
+  toggle ^= 1;
+}
+
+// ---- BNRDD log line -------------------------------------------------------
+function buildBNRDD() {
+  const now = new Date();
+  const iso = now.toISOString().slice(0, 19) + 'Z';
+  const latDM = degToDM(lat, true);
+  const lonDM = degToDM(lon, false);
+  const NS = lat >= 0 ? 'N' : 'S';
+  const EW = lon >= 0 ? 'E' : 'W';
+  const body = `BNRDD,${String(DEVICE_ID).padStart(4, '0')},${iso},${cpm},${cpb},${totalCount},${geigerStatus},${latDM},${NS},${lonDM},${EW},${alt.toFixed(2)},${gpsStatus},${hdop},${nbsat}`;
+  const chk = checksum(body);
+  return `$${body}*${chk.toString(16).toUpperCase().padStart(2, '0')}`;
+}
+
+function degToDM(deg, isLat) {
+  const a = Math.abs(deg);
+  const d = Math.floor(a);
+  const m = (a - d) * 60;
+  const dStr = isLat ? String(d).padStart(2, '0') : String(d).padStart(3, '0');
+  // 4 fractional digits, total ddmm.mmmm or dddmm.mmmm
+  const mStr = m.toFixed(4).padStart(7, '0');
+  return `${dStr}${mStr}`;
+}
+
+function checksum(s) {
+  let c = 0;
+  for (let i = 0; i < s.length; i++) c ^= s.charCodeAt(i);
+  return c & 0xff;
+}
+
+function appendLog(line) {
+  logLines.push(line);
+  if (logLines.length > MAX_LOG_LINES) logLines.shift();
+  const el = document.getElementById('log');
+  el.textContent = logLines.join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+// ---- Phase transitions ----------------------------------------------------
+function updatePhase() {
+  const elapsed = simTime - phaseStart;
+  switch (phase) {
+    case PHASE.SPLASH:
+      if (elapsed >= 1000) { phase = PHASE.BANNER; phaseStart = simTime; }
+      break;
+    case PHASE.BANNER:
+      if (elapsed >= 3000) { phase = PHASE.WAITING_GPS; phaseStart = simTime; }
+      break;
+    case PHASE.WAITING_GPS:
+      if (elapsed >= 6000) {
+        // GPS acquires
+        gpsStatus = 'A';
+        nbsat = 7;
+        hdop = 120;
+        phase = PHASE.WARMING;
+        phaseStart = simTime;
+      }
+      break;
+    case PHASE.WARMING:
+      if (strCount >= NX) {
+        phase = PHASE.RECORDING;
+        phaseStart = simTime;
+      }
+      break;
+  }
+}
+
+// ---- Main loop ------------------------------------------------------------
+function frame(now) {
+  const dt = now - lastFrame;
+  lastFrame = now;
+  if (!paused) {
+    simTime += dt * speed;
+
+    // 5-second sim-time tick boundary
+    while (simTime - lastTick >= TIME_INTERVAL_SEC * 1000 && phase >= PHASE.WAITING_GPS) {
+      lastTick += TIME_INTERVAL_SEC * 1000;
+      fiveSecondTick();
+    }
+
+    updatePhase();
+  }
+
+  render();
+  updateStatus();
+  requestAnimationFrame(frame);
+}
+
+function updateStatus() {
+  document.getElementById('meta').textContent =
+    `phase=${PHASE_NAME[phase]}  sim_t=${(simTime / 1000).toFixed(1)}s  speed=${speed}×`;
+  document.getElementById('s-cpm').textContent    = cpm;
+  document.getElementById('s-cpb').textContent    = cpb;
+  document.getElementById('s-total').textContent  = totalCount;
+  document.getElementById('s-uptime').textContent = `${Math.floor(uptime / 60)}m ${uptime % 60}s`;
+  document.getElementById('s-geiger').textContent = geigerStatus;
+  document.getElementById('s-gps').textContent    = gpsStatus;
+  document.getElementById('s-sats').textContent   = nbsat;
+  document.getElementById('s-hdop').textContent   = hdop || '--';
+  document.getElementById('s-pos').textContent    = gpsStatus === 'A' ? `${lat.toFixed(4)}, ${lon.toFixed(4)}` : '--';
+  document.getElementById('s-dist').textContent   = distKm.toFixed(2);
+  document.getElementById('s-batt').textContent   = `${batteryV.toFixed(2)}V (${batteryBar}/8)`;
+
+  // Phase breadcrumb: highlight current, dim future, mark past as done
+  document.querySelectorAll('.breadcrumb .step').forEach(el => {
+    const p = parseInt(el.dataset.phase, 10);
+    el.classList.toggle('active', p === phase);
+    el.classList.toggle('done',   p <  phase);
+  });
+}
+
+// ---- Controls -------------------------------------------------------------
+function reset() {
+  simTime = 0; lastTick = 0; lastFrame = performance.now();
+  phase = PHASE.SPLASH; phaseStart = 0;
+  cpm = 0; cpb = 0; totalCount = 0; uptime = 0; totalTime = 0;
+  shiftReg.fill(0); regIdx = 0; strCount = 0; toggle = 0;
+  geigerStatus = 'V'; gpsStatus = 'V';
+  nbsat = 0; hdop = 0; distKm = 0;
+  lat = 35.6810; lon = 139.7670; alt = 50;
+  driftPhase = Math.random() * Math.PI * 2;
+  batteryV = 4.10; batteryBar = 7;
+  logLines = [];
+  document.getElementById('log').textContent = '';
+}
+
+document.getElementById('reset').addEventListener('click', reset);
+
+const SPEEDS = [1, 5, 20, 100];
+const speedBtn = document.getElementById('speed');
+speedBtn.addEventListener('click', () => {
+  speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+  speedBtn.textContent = `${speed}× speed`;
+});
+
+const pauseBtn = document.getElementById('pause');
+pauseBtn.addEventListener('click', () => {
+  paused = !paused;
+  pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+  pauseBtn.classList.toggle('active', paused);
+});
+
+requestAnimationFrame(frame);
+</script>
+</div>
+</body>
+</html>

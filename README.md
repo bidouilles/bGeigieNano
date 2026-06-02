@@ -15,6 +15,21 @@ This is a lighter version of the bGeigie Mini which is meant to fit in a Pelican
 
 ![bGeigieNano](https://raw.github.com/bidouilles/bGeigieNano/bGeigieNanoKit/assembly/bGeigieNanoKit_bb_600.jpg)
 
+## Board design (bGeigieNanoKit v1.0r4)
+
+PCB layout for the nano kit 1.0 reference build, designed by Lionel
+Bergeret, Pieter Franken and Naim Busek (CC BY-SA 3.0). Source files
+live in the [bGeigieNanoSafecast hardware folder][11].
+
+![bGeigieNanoKit v1.0r4 board](assembly/bGeigieNanoKit_v1.0r4_board.png)
+
+## Mechanical assembly drawings
+
+12-sheet Pro/ENGINEER drawing pack (BNE02, Issue 02, 2021-09-05) by
+Daryl Bender covering the enclosure, board stack-up, GPS/OpenLog/Geiger
+positioning, and operational interfaces:
+[assembly/bGeigieNano_assembly_drawings.pdf](assembly/bGeigieNano_assembly_drawings.pdf).
+
 ## Pins assignment
 
 | Arduino Fio pin | Target pin |
@@ -39,32 +54,63 @@ This is a lighter version of the bGeigie Mini which is meant to fit in a Pelican
 * **OpenLog**: 2mA idle, 6mA at maximum recording rate
 * **Adafruit Ultimate GPS**: 25mA acquisition, 20mA tracking
 * **Monochrome OLED 128x32 0.91"**: 4mA 50% turn-on, 7.8mA 100% turn-on
+* **Medcom iRover HV board** (LND-7317 supply): ~21mA, active regulation of the ~500V plateau
 
 ## Estimation
-The total current used at run time can be estimated around 36mA (= 6+6+20+4) per second which will result in a consumption of 0.01mAh (= 36mA/3600). So
-the total log duration if using a battery of 1300mAh will be (1300/.01)/3600 = 36.11 = **36h06m**
+
+Total run-time current:
+
+    6 (Fio) + 6 (OpenLog) + 20 (GPS tracking) + 4 (OLED) + 21 (iRover HV) = 57 mA
+
+Battery life is then `capacity / current`. For a 1300 mAh cell: `1300 / 57 ≈ 22.8 h`, i.e. **~22h50m**.
+
+This matches an early empirical measurement (`git log`, commit `6eefd91`): ~15 h
+on a fully-charged 850 mAh Li-Ion battery, which back-solves to 850/15 ≈ 57 mA.
 
 ## Summary table
 
+Assumes continuous logging with GPS tracking and no sleep mode. Real-world
+durations are typically 10–20% shorter due to LDO dropout cutting the usable
+battery capacity below the rated mAh, and occasional GPS re-acquisition spikes.
+
 | Battery capacity (mAh) | Estimated log duration (days hh:mm) |
 | :-----------: | :-----------: |
-| 1300 | 1d 12:06 |
-| 2600 |  3d 00:13 |
-| 6600 |  7d 15:19 |
+| 1300 | 0d 22:48 |
+| 2600 | 1d 21:37 |
+| 6600 | 4d 19:47 |
 
 # Build process
-## Using the Makefile
-    export ARDUINODIR=/home/geigie/arduino-1.0.1/
-    export SERIALDEV=/dev/ttyUSB0
-    export BOARD=fio
-    cp -r libraries /home/geigie/arduino-1.0.1/
-    make
-    make upload
+
+The Makefile is a thin wrapper around [arduino-cli][10]. It targets the
+Arduino Fio (`arduino:avr:fio`) and points the compiler at the vendored
+Adafruit_GFX / Adafruit_SSD1306 libraries under `libraries/` (those have
+local mods — Safecast splash bitmap and reduced font set — needed to fit
+in the 328P's 32 KB of flash).
+
+`arduino-cli` is auto-detected: if it isn't on `PATH`, the Makefile falls
+back to the binary bundled inside `Arduino IDE.app` on macOS.
+
+    make deps     # one-time: install the arduino:avr core
+    make build    # compile sketch into ./build/
+    make upload   # compile + flash (auto-detects /dev/cu.usbserial-*)
+    make monitor  # serial monitor at 9600 baud
+    make hex      # copy compiled .hex to ./bGeigieNano.hex (legacy name)
+    make clean    # remove ./build/
+
+Override the port with `make upload PORT=/dev/cu.usbserial-XXXX`.
 
 ## Using the prebuilt image
-You can use directly the prebuilt image to flash the Arduino Fio. Here is an example with Arduino Fio connected to ttyUSB0:
 
-    /usr/bin/avrdude -DV -p atmega328p -P /dev/ttyUSB0 -c arduino -b 57600 -U flash:w:bGeigieNano.hex:i
+You can flash the bundled `bGeigieNano.hex` without recompiling, via
+`arduino-cli` (replace the port with whatever the Fio enumerates as —
+`/dev/cu.usbserial-XXXX` on macOS, `/dev/ttyUSB0` on Linux):
+
+    arduino-cli upload --fqbn arduino:avr:fio --input-file bGeigieNano.hex --port /dev/cu.usbserial-XXXX
+
+If you'd rather drive `avrdude` directly, use the one bundled with the
+Arduino install (the Fio bootloader is Optiboot/STK500v1 at 57600 baud):
+
+    avrdude -p atmega328p -c arduino -b 57600 -P /dev/cu.usbserial-XXXX -D -U flash:w:bGeigieNano.hex:i
 
 # Usage
 Once powered on the bGeigieNano will initiliaze a new log file on the SD card, setup the GPS and start counting the CPM.
@@ -104,18 +150,19 @@ The OpenLog should start listening at 9600bps and in Command mode. Here is the c
 
     9600,26,3,2
 
-## SoftwareSerial update
+## SoftwareSerial RX buffer
 
-To make sure all of the NMEA sentences can be received correctly, we will need to update the _SS_MAX_RX_BUFF definition from arduino-1.0.1/libraries/SoftwareSerial/SoftwareSerial.h header file. Here is the modification:
-
-    //#define _SS_MAX_RX_BUFF 64 // RX buffer size -- Old Value is 64
-    #define _SS_MAX_RX_BUFF 128 // RX buffer size for TinyGPS
+TinyGPS needs a 128-byte SoftwareSerial RX buffer or NMEA sentences get
+truncated. The Makefile passes `-D_SS_MAX_RX_BUFF=128` as a build
+property, which the system `SoftwareSerial.h` honors because it guards
+its default with `#ifndef`. If you build with another tool, you must
+either pass the same `-D` flag or patch `SoftwareSerial.h` directly; the
+sketch has a compile-time `#error` that fires if the override is missing.
 
 # Licenses
  * [InterruptHandler and bGeigieMini code][5] - Copyright (c) 2011, Robin Scheibler aka FakuFaku
  * [TinyGPS][6] - Copyright (C) 2008-2012 Mikal Hart
  * bGeigieNano - Copyright (c) 2012, Lionel Bergeret
- * [Makefile][8] - Copyright (c) 2012, Tim Marston
 
 
   [1]: https://github.com/sparkfun/OpenLog "OpenLog"
@@ -125,5 +172,6 @@ To make sure all of the NMEA sentences can be received correctly, we will need t
   [5]: https://github.com/fakufaku/SafecastBGeigie-firmware "SafecastBGeigie-firmware"
   [6]: http://arduiniana.org/libraries/tinygps/ "TinyGPS"
   [7]: https://www.adafruit.com/products/746 "Ultimate GPS"
-  [8]: http://ed.am/dev/make/arduino-mk "Arduino Makefile"
   [9]: http://www.pelican.com/cases_detail.php?Case=1010 "Pelican 1010"
+  [10]: https://arduino.github.io/arduino-cli/ "arduino-cli"
+  [11]: https://github.com/Safecast/bGeigieNanoSafecast/tree/master/hardware "bGeigieNanoSafecast hardware"

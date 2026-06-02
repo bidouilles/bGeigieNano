@@ -1,4 +1,31 @@
+# bGeigie Nano runtime configuration. Place on the SD card as SAFECAST.TXT.
+# Lines starting with '#' are ignored, but inline comments are NOT stripped:
+# put comments on their own line and avoid trailing whitespace after values.
+# Only the keys parsed by NanoSetup.cpp are honored. CRLF endings are OK.
+
+# user name (max 15 chars)
 nm=Lionel
+# device id (logged as the 2nd BNRDD field)
 did=210
-tz=9
+# geigie type: 0=bGeigie, 1=xGeigie
+gt=0
+# display mode: 0=uSv/h, 1=Bq/m2
+gm=0
+# CPM -> uSv/h factor (LND-7317 default)
 cpmf=334
+# CPM -> Bq/m2 factor (Cs137 default)
+bqmf=37
+# alarm threshold in CPM
+al=100
+# timezone offset in hours
+tz=9
+# ISO country code (3 chars)
+cn=JPN
+# sensor type: 0=LND7317, 1=LND712
+st=0
+# sensor shield: 0=none, 1=alpha, 2=alpha+beta
+ss=0
+# sensor height above ground in cm
+sh=100
+# sensor mode: 0=air, 1=surface, 2=plane
+sm=0

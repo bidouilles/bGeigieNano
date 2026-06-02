@@ -66,14 +66,16 @@ void HardwareCounter::start()
 }
 
 // call this to read the current count and save it
-unsigned int HardwareCounter::count()
+COUNTER_TYPE HardwareCounter::count()
 {
+  // reset the sampling window without resetting the hardware count itself,
+  // so the caller can take a fresh sample by diffing against its previous read.
+  _start_time = millis();
 
-  TCCRnB = TCCRnB & ~7;   // Gate Off  / Counter Tn stopped
-  _count = TCNTn;         // Set the count in object variable
-  TCCRnB = TCCRnB | 7;    // restart counting
+  TCCRnB = TCCRnB & ~7;       // Gate Off  / Counter Tn stopped
+  _count = (COUNTER_TYPE) TCNTn;
+  TCCRnB = TCCRnB | 7;        // restart counting
   return _count;
-
 }
 
 // This indicates when the count over the determined period is over

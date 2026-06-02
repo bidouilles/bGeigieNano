@@ -125,7 +125,7 @@ public:
         DoseType &dose,
         char * buffer, size_t buffer_size);
   void initialize();
-  void loadFromFile(char * setupFile);
+  void loadFromFile(const char * setupFile);
 
 private:
   SoftwareSerial &mOpenlog;

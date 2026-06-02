@@ -38,12 +38,16 @@
 #include <WProgram.h>
 #endif
 
+// Type used for the internal pulse counter. Wide enough that the counter
+// only wraps after its full range, so the caller can safely compute
+// (current - previous) without resetting the hardware between reads.
+typedef unsigned int COUNTER_TYPE;
 
 // Defining the public functions for the counter
 void interruptCounterSetup(int interrupt_pin, unsigned long delay);
 void interruptCounterReset();
 int interruptCounterAvailable();
-unsigned long interruptCounterCount();
+COUNTER_TYPE interruptCounterCount();
 
 #endif /* INTERRUPTCOUNTER_H */
 

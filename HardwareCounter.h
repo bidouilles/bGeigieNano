@@ -57,6 +57,11 @@
 #define TOVn   TOV1
 #endif
 
+// Type used for the internal pulse counter. Wide enough that the counter
+// only wraps after its full range, so the caller can safely compute
+// (current - previous) without resetting the hardware between reads.
+typedef unsigned int COUNTER_TYPE;
+
 // Defining the Class for the counter
 class HardwareCounter
 {
@@ -65,13 +70,13 @@ class HardwareCounter
     HardwareCounter(int timer_pin, long delay);
     void start();
     int available();
-    unsigned int count();
+    COUNTER_TYPE count();
 
   // privatee
   private:
     long _start_time;
     long _delay;
-    unsigned int _count;
+    COUNTER_TYPE _count;
 
 };
 

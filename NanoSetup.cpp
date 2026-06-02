@@ -63,11 +63,11 @@ void NanoSetup::initialize() {
   }
 }
 
-void NanoSetup::loadFromFile(char * setupFile) {
+void NanoSetup::loadFromFile(const char * setupFile) {
   bool config_changed = false;
   char *config_buffer, *key, *value;
-  byte pos, line_lenght;
-  byte i, buffer_lenght;
+  byte pos, line_length;
+  byte i, buffer_length;
 
   mOpenlog.listen();
 
@@ -79,9 +79,13 @@ void NanoSetup::loadFromFile(char * setupFile) {
   mOpenlog.print(mBuffer);
   mOpenlog.write(13); //This is \r
 
+  // Drain OpenLog's command echo. Accept either CR or LF as the terminator
+  // since the echoed line endings depend on the OpenLog firmware variant.
   while(1) {
-    if(mOpenlog.available())
-      if(mOpenlog.read() == '\r') break;
+    if(mOpenlog.available()) {
+      char ch = mOpenlog.read();
+      if(ch == '\r' || ch == '\n') break;
+    }
   }
 
   // Read config file in memory
@@ -99,52 +103,53 @@ void NanoSetup::loadFromFile(char * setupFile) {
     }
   }
 
-  line_lenght = pos;
+  line_length = pos;
   pos = 0;
-  
-  // Process each config file lines
-  while(pos < line_lenght){
 
-    // Get a complete line
+  // Process each config file lines
+  while(pos < line_length){
+
+    // Get a complete line. Terminate on CR or LF so SAFECAST.TXT files
+    // saved with DOS line endings don't carry the \r into the value.
     i = 0;
     config_buffer = mBuffer + pos;
-    while(mBuffer[pos++] != '\n') {
+    while(true) {
+      char ch = mBuffer[pos++];
+      if (ch == '\n' || ch == '\r') break;
+      if (pos == mBufferSize) break;
       i++;
-      if(pos == mBufferSize) {
-        break;
-      }
     }
-    buffer_lenght = i++;
-    config_buffer[--i] = '\0';
+    buffer_length = i;
+    config_buffer[i] = '\0';
 
     // Skip empty lines
-    if(config_buffer[0] == '\0' || config_buffer[0] == '#' || buffer_lenght < 3) continue;
+    if(config_buffer[0] == '\0' || config_buffer[0] == '#' || buffer_length < 3) continue;
 
     // Search for keys
     i = 0;
     while(config_buffer[i] == ' ' || config_buffer[i] == '\t') {
-      if(++i == buffer_lenght) break; // skip white spaces
+      if(++i == buffer_length) break; // skip white spaces
     }
-    if(i == buffer_lenght) continue;
+    if(i == buffer_length) continue;
     key = &config_buffer[i];
 
     // Search for '=' ignoring white spaces
     while(config_buffer[i] != '=') {
       if(config_buffer[i] == ' ' || config_buffer[i] == '\t') config_buffer[i] = '\0';
-      if(++i == buffer_lenght) {
+      if(++i == buffer_length) {
         break;
       }
     }
-    if(i == buffer_lenght) continue;
+    if(i == buffer_length) continue;
     config_buffer[i++] = '\0';
 
     // Search for value ignoring white spaces
     while(config_buffer[i] == ' ' || config_buffer[i] == '\t') {
-      if(++i == buffer_lenght) {
+      if(++i == buffer_length) {
         break;
       }
     }
-    if(i == buffer_lenght) continue;
+    if(i == buffer_length) continue;
     value = &config_buffer[i];
     
     //
@@ -178,7 +183,7 @@ void NanoSetup::loadFromFile(char * setupFile) {
     }
     else if(strcmp(key, "did") == 0) {
       // Update device id in EEPROM
-      if (mConfig.device_id != atoi(value)) {
+      if (mConfig.device_id != (unsigned int)atoi(value)) {
         mConfig.device_id = atoi(value);
         config_changed = true;
         DEBUG_PRINTLN("   - Update devide id in EEPROM");
@@ -202,7 +207,7 @@ void NanoSetup::loadFromFile(char * setupFile) {
     }
     else if(strcmp(key, "al") == 0) {
       // Update alarm threshold in EEPROM
-      if (mConfig.alarm_level != atoi(value)) {
+      if (mConfig.alarm_level != (unsigned int)atoi(value)) {
         mConfig.alarm_level = atoi(value);
         config_changed = true;
         DEBUG_PRINTLN("   - Update alarm threshold in EEPROM");
@@ -243,7 +248,7 @@ void NanoSetup::loadFromFile(char * setupFile) {
     }
     else if(strcmp(key, "sh") == 0) {
       // Update sensor height in EEPROM
-      if (mConfig.sensor_height != atoi(value)) {
+      if (mConfig.sensor_height != (unsigned int)atoi(value)) {
         mConfig.sensor_height = atoi(value);
         config_changed = true;
         DEBUG_PRINTLN("   - Update sensor height in EEPROM");
